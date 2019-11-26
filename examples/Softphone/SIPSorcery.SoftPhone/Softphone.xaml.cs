@@ -2,32 +2,15 @@
 // Filename: Softphone.xaml.cs
 //
 // Description: The user interface for the softphone. 
-// 
+//
+// Author(s):
+// Aaron Clauson (aaron@sipsorcery.com)
+//  
 // History:
-// 11 Mar 2012	Aaron Clauson	Refactored.
+// 11 Mar 2012	Aaron Clauson	Refactored, Hobart, Australia.
 //
 // License: 
-// This software is licensed under the BSD License http://www.opensource.org/licenses/bsd-license.php
-//
-// Copyright (c) 2006-2018 Aaron Clauson (aaron@sipsorcery.com), SIP Sorcery PTY LTD, Hobart, Australia (www.sipsorcery.com)
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without modification, are permitted provided that 
-// the following conditions are met:
-//
-// Redistributions of source code must retain the above copyright notice, this list of conditions and the following disclaimer. 
-// Redistributions in binary form must reproduce the above copyright notice, this list of conditions and the following 
-// disclaimer in the documentation and/or other materials provided with the distribution. Neither the name of SIPSorcery Ltd. 
-// nor the names of its contributors may be used to endorse or promote products derived from this software without specific 
-// prior written permission. 
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, 
-// BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. 
-// IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, 
-// OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, 
-// OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, 
-// OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE 
-// POSSIBILITY OF SUCH DAMAGE.
+// BSD 3-Clause "New" or "Revised" License, see included LICENSE.md file.
 //-----------------------------------------------------------------------------
 
 using System;
@@ -88,8 +71,20 @@ namespace SIPSorcery.SoftPhone
             _sipClient.CallEnded += ResetToCallStartState;
             _sipClient.StatusMessage += (message) => { SetStatusText(m_signallingStatus, message); };
 
-            // Lookup and periodically check the public IP address of the host machine.
-            _stunClient = new SoftphoneSTUNClient();
+            // If a STUN server hostname has been specified start the STUN client to lookup and periodically update the public IP address of the host machine.
+            if (!SIPSoftPhoneState.STUNServerHostname.IsNullOrBlank())
+            {
+                _stunClient = new SoftphoneSTUNClient(SIPSoftPhoneState.STUNServerHostname);
+                _stunClient.PublicIPAddressDetected += (ip) =>
+                { 
+                    SIPSoftPhoneState.PublicIPAddress = ip;
+                    UIHelper.DoOnUIThread(this, delegate
+                    {
+                        publicIPAddress.Content = $"Public IP: {ip}";
+                    });
+                };
+                _stunClient.Run();
+            }
 
             Initialise();
         }
@@ -107,6 +102,7 @@ namespace SIPSorcery.SoftPhone
                 m_sipPassword,
                 null,
                 m_sipServer,
+                // TODO: Fix GetDefaultSIPEndPoint() to use SIPSorcery 3.6.0 Nuget package.
                 new SIPURI(m_sipUsername, _sipClient.SIPClientTransport.GetDefaultSIPEndPoint().GetIPEndPoint().ToString(), null),
                 180,
                 null,
@@ -117,7 +113,8 @@ namespace SIPSorcery.SoftPhone
 
         private void OnWindowLoaded(object sender, System.Windows.RoutedEventArgs e)
         {
-            Task.Run(() => { 
+            Task.Run(() =>
+            {
                 _mediaManager = new MediaManager();
                 logger.Debug("Media Manager Initialised.");
                 _mediaManager.OnLocalVideoSampleReady += LocalVideoSampleReady;
@@ -138,7 +135,11 @@ namespace SIPSorcery.SoftPhone
         {
             _mediaManager.Close();
             _sipClient.Shutdown();
-            _stunClient.Stop();
+
+            if (_stunClient != null)
+            {
+                _stunClient.Stop();
+            }
         }
 
         /// <summary>
@@ -269,7 +270,7 @@ namespace SIPSorcery.SoftPhone
 
                 // SIP call.
                 _activeClient = _sipClient;
-                Task.Run (() => { _sipClient.Call(_mediaManager, destination); });
+                Task.Run(() => { _sipClient.Call(_mediaManager, destination); });
             }
         }
 
@@ -373,19 +374,19 @@ namespace SIPSorcery.SoftPhone
                         _localBitmapFullRectangle = new Int32Rect(0, 0, Convert.ToInt32(_localWriteableBitmap.Width), Convert.ToInt32(_localWriteableBitmap.Height));
                     }
 
-                        // Reserve the back buffer for updates.
-                        _localWriteableBitmap.Lock();
+                    // Reserve the back buffer for updates.
+                    _localWriteableBitmap.Lock();
 
                     Marshal.Copy(sample, 0, _localWriteableBitmap.BackBuffer, sample.Length);
 
-                        // Specify the area of the bitmap that changed.
-                        _localWriteableBitmap.AddDirtyRect(_localBitmapFullRectangle);
+                    // Specify the area of the bitmap that changed.
+                    _localWriteableBitmap.AddDirtyRect(_localBitmapFullRectangle);
 
-                        // Release the back buffer and make it available for display.
-                        _localWriteableBitmap.Unlock();
+                    // Release the back buffer and make it available for display.
+                    _localWriteableBitmap.Unlock();
 
                 }), System.Windows.Threading.DispatcherPriority.Normal);
-            }   
+            }
         }
 
         private void RemoteVideoSampleReady(byte[] sample, int width, int height)

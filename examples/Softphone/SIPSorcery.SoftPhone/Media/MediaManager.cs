@@ -3,32 +3,15 @@
 //
 // Description: This class manages different media channels that can be included in a call, e.g.
 // aduio and video. It also controls the RTP transmission and reception.
+//
+// Author(s):
+// Aaron Clauson (aaron@sipsorcery.com)
 // 
 // History:
-// 27 Nov 2014	Aaron Clauson	Refactored.
+// 27 Nov 2014	Aaron Clauson	Refactored, Hobart, Australia.
 //
 // License: 
-// This software is licensed under the BSD License http://www.opensource.org/licenses/bsd-license.php
-//
-// Copyright (c) 2006-2018 Aaron Clauson (aaron@sipsorcery.com), SIP Sorcery PTY LTD, Hobart, Australia (www.sipsorcery.com)
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without modification, are permitted provided that 
-// the following conditions are met:
-//
-// Redistributions of source code must retain the above copyright notice, this list of conditions and the following disclaimer. 
-// Redistributions in binary form must reproduce the above copyright notice, this list of conditions and the following 
-// disclaimer in the documentation and/or other materials provided with the distribution. Neither the name of SIPSorcery Ltd. 
-// nor the names of its contributors may be used to endorse or promote products derived from this software without specific 
-// prior written permission. 
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, 
-// BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. 
-// IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, 
-// OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, 
-// OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, 
-// OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE 
-// POSSIBILITY OF SUCH DAMAGE.
+// BSD 3-Clause "New" or "Revised" License, see included LICENSE.md file.
 //-----------------------------------------------------------------------------
 
 using System;
@@ -63,7 +46,7 @@ namespace SIPSorcery.SoftPhone
         public event Action<byte[], int, int> OnLocalVideoSampleReady;      // [sample, width, height] Fires when a local video sample is ready for display.
         public event Action<byte[], int, int> OnRemoteVideoSampleReady;     // [sample, width, height] Fires when a remote video sample is ready for display.
         public event Action<string> OnLocalVideoError = delegate { };       // Fires when there is an error communicating with the local webcam.
-        public event Action<string> OnRemoteVideoError;
+        //public event Action<string> OnRemoteVideoError;
 
         public MediaManager(bool useVideo = false)
         {
@@ -154,7 +137,43 @@ namespace SIPSorcery.SoftPhone
             _localVideoSamplingCancelTokenSource = new CancellationTokenSource();
             var cancellationToken = _localVideoSamplingCancelTokenSource.Token;
 
-            _localVideoSamplingTask = Task.Factory.StartNew(() =>
+            _localVideoSamplingTask = Task.Run(() => SampleWebCam(videoSampler, videoMode, _localVideoSamplingCancelTokenSource));
+
+            _localAudioSamplingTask = Task.Factory.StartNew(() =>
+            {
+                Thread.CurrentThread.Name = "audsampler_" + videoMode.DeviceIndex;
+
+                while (!_stop && !cancellationToken.IsCancellationRequested)
+                {
+                    byte[] audioSample = null;
+                    int result = videoSampler.GetAudioSample(ref audioSample);
+
+                    if (result == NAudio.MediaFoundation.MediaFoundationErrors.MF_E_HW_MFT_FAILED_START_STREAMING)
+                    {
+                        logger.Warn("An audio sample could not be acquired from the local source. Check that it is not already in use.");
+                        //OnLocalVideoError("A sample could not be acquired from the local webcam. Check that it is not already in use.");
+                        break;
+                    }
+                    else if (result != 0)
+                    {
+                        logger.Warn("An audio sample could not be acquired from the local source. Check that it is not already in use. Error code: " + result);
+                        //OnLocalVideoError("A sample could not be acquired from the local webcam. Check that it is not already in use. Error code: " + result);
+                        break;
+                    }
+                    else if (audioSample != null)
+                    {
+                        if (_audioChannel != null)
+                        {
+                            _audioChannel.AudioSampleReceived(audioSample, 0);
+                        }
+                    }
+                }
+            }, cancellationToken);
+        }
+
+        private void SampleWebCam(MFVideoSampler videoSampler, VideoMode videoMode, CancellationTokenSource cts)
+        {
+            try
             {
                 Thread.CurrentThread.Name = "vidsampler_" + videoMode.DeviceIndex + "_" + videoMode.Width + "_" + videoMode.Height;
 
@@ -162,11 +181,11 @@ namespace SIPSorcery.SoftPhone
                 // TODO: The last parameter passed to the vpx encoder init needs to be the frame stride not the width.
                 vpxEncoder.InitEncoder(Convert.ToUInt32(videoMode.Width), Convert.ToUInt32(videoMode.Height), Convert.ToUInt32(videoMode.Width));
 
-               // var videoSampler = new MFVideoSampler();
+                // var videoSampler = new MFVideoSampler();
                 //videoSampler.Init(videoMode.DeviceIndex, videoMode.Width, videoMode.Height);
-               // videoSampler.InitFromFile();
+                // videoSampler.InitFromFile();
 
-                while (!_stop && !cancellationToken.IsCancellationRequested)
+                while (!_stop && !cts.IsCancellationRequested)
                 {
                     byte[] videoSample = null;
                     var sample = videoSampler.GetSample(ref videoSample);
@@ -184,13 +203,10 @@ namespace SIPSorcery.SoftPhone
                     //    break;
                     //}
                     //else 
-                    if (sample.HasVideoSample == true)
+                    if (sample?.HasVideoSample == true)
                     {
                         // This event sends the raw bitmap to the WPF UI.
-                        if (OnLocalVideoSampleReady != null)
-                        {
-                            OnLocalVideoSampleReady(videoSample, videoSampler.Width, videoSampler.Height);
-                        }
+                        OnLocalVideoSampleReady?.Invoke(videoSample, videoSampler.Width, videoSampler.Height);
 
                         // This event encodes the sample and forwards it to the RTP manager for network transmission.
                         if (_rtpManager != null)
@@ -229,38 +245,11 @@ namespace SIPSorcery.SoftPhone
 
                 videoSampler.Stop();
                 vpxEncoder.Dispose();
-            }, cancellationToken);
-
-            _localAudioSamplingTask = Task.Factory.StartNew(() =>
+            }
+            catch (Exception excp)
             {
-                Thread.CurrentThread.Name = "audsampler_" + videoMode.DeviceIndex;
-
-                while (!_stop && !cancellationToken.IsCancellationRequested)
-                {
-                    byte[] audioSample = null;
-                    int result = videoSampler.GetAudioSample(ref audioSample);
-
-                    if (result == NAudio.MediaFoundation.MediaFoundationErrors.MF_E_HW_MFT_FAILED_START_STREAMING)
-                    {
-                        logger.Warn("An audio sample could not be acquired from the local source. Check that it is not already in use.");
-                        //OnLocalVideoError("A sample could not be acquired from the local webcam. Check that it is not already in use.");
-                        break;
-                    }
-                    else if (result != 0)
-                    {
-                        logger.Warn("An audio sample could not be acquired from the local source. Check that it is not already in use. Error code: " + result);
-                        //OnLocalVideoError("A sample could not be acquired from the local webcam. Check that it is not already in use. Error code: " + result);
-                        break;
-                    }
-                    else if (audioSample != null)
-                    {
-                        if (_audioChannel != null)
-                        {
-                            _audioChannel.AudioSampleReceived(audioSample, 0);
-                        }
-                    }
-                }
-            }, cancellationToken);
+                logger.Error($"Exception SampleWebCam. {excp.Message}");
+            }
         }
 
         public void StopLocalVideo()

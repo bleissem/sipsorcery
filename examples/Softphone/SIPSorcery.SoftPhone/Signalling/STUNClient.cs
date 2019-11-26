@@ -3,39 +3,19 @@
 //
 // Description: A STUN client whose sole purpose is to determine the public IP address
 // of the machine running the softphone. 
-// 
+//
+// Author(s):
+// Aaron Clauson (aaron@sipsorcery.com)
+//  
 // History:
-// 27 Mar 2012	Aaron Clauson	Refactored.
+// 27 Mar 2012	Aaron Clauson	Refactored, Hobart, Australia.
 //
 // License: 
-// This software is licensed under the BSD License http://www.opensource.org/licenses/bsd-license.php
-//
-// Copyright (c) 2006-2012 Aaron Clauson (aaron@sipsorcery.com), SIP Sorcery PTY LTD, Hobart, Australia (www.sipsorcery.com)
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without modification, are permitted provided that 
-// the following conditions are met:
-//
-// Redistributions of source code must retain the above copyright notice, this list of conditions and the following disclaimer. 
-// Redistributions in binary form must reproduce the above copyright notice, this list of conditions and the following 
-// disclaimer in the documentation and/or other materials provided with the distribution. Neither the name of SIPSorcery Ltd. 
-// nor the names of its contributors may be used to endorse or promote products derived from this software without specific 
-// prior written permission. 
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, 
-// BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. 
-// IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, 
-// OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, 
-// OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, 
-// OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE 
-// POSSIBILITY OF SUCH DAMAGE.
+// BSD 3-Clause "New" or "Revised" License, see included LICENSE.md file.
 //-----------------------------------------------------------------------------
 
 using System;
-using System.Collections.Generic;
-using System.Linq;
 using System.Net;
-using System.Text;
 using System.Threading;
 using SIPSorcery.Net;
 using SIPSorcery.Sys;
@@ -45,70 +25,74 @@ namespace SIPSorcery.SoftPhone
 {
     public class SoftphoneSTUNClient
     {
-        private const string STUN_CLIENT_THREAD_NAME = "stunclient";
-
         private ILog logger = AppState.logger;
 
-        private string m_stunServerHostname = SIPSoftPhoneState.STUNServerHostname;
+        private Timer updateTimer;
+
+        private readonly TimeSpan updateIntervalNormal = TimeSpan.FromMinutes(1);
+
+        private readonly TimeSpan updateIntervalShort = TimeSpan.FromSeconds(5);
+
+        private readonly string m_stunServerHostname;
         
-        private ManualResetEvent m_stunClientMRE = new ManualResetEvent(false);     // Used to set the interval on the STUN lookups and also allow the thread to be stopped.
-        private bool m_stop;
+        private volatile bool m_stop;
 
-        public static IPAddress PublicIPAddress;
+        public event Action<IPAddress> PublicIPAddressDetected;
 
-        public SoftphoneSTUNClient()
+        public SoftphoneSTUNClient(string stunServerHostname)
         {
-            if (!m_stunServerHostname.IsNullOrBlank())
+            m_stunServerHostname = stunServerHostname;
+        }
+
+        public void Run()
+        {
+            m_stop = false;
+            updateTimer = new Timer(e =>
             {
-                // If a STUN server hostname has been specified start the STUN client thread.
-                ThreadPool.QueueUserWorkItem(delegate { StartSTUNClient(); });
-            }
+                if (!m_stop)
+                {
+                    var publicIPAddress = GetPublicIPAddress();
+                    if (publicIPAddress != null)
+                    {
+                        PublicIPAddressDetected?.Invoke(publicIPAddress);
+                    }
+
+                    var timerInterval = (publicIPAddress == null) ? updateIntervalShort : updateIntervalNormal;
+                    updateTimer.Change(timerInterval, timerInterval);
+                }
+            }, null, TimeSpan.Zero, updateIntervalNormal);
+
+            logger.Debug("STUN client started.");
         }
 
         public void Stop()
         {
             m_stop = true;
-            m_stunClientMRE.Set();
+            updateTimer.Change(Timeout.Infinite, Timeout.Infinite);
+
+            logger.Warn("STUN client stopped.");
         }
 
-        private void StartSTUNClient()
+        private IPAddress GetPublicIPAddress()
         {
             try
             {
-                Thread.CurrentThread.Name = STUN_CLIENT_THREAD_NAME;
-
-                logger.Debug("STUN client started.");
-
-                while (!m_stop)
+                var publicIP = STUNClient.GetPublicIPAddress(m_stunServerHostname);
+                if (publicIP != null)
                 {
-                    try
-                    {
-                        IPAddress publicIP = STUNClient.GetPublicIPAddress(m_stunServerHostname);
-                        if (publicIP != null)
-                        {
-                            logger.Debug("The STUN client was able to determine the public IP address as " + publicIP.ToString() + ".");
-                            PublicIPAddress = publicIP;
-                        }
-                        else
-                        {
-                            logger.Debug("The STUN client could not determine the public IP address.");
-                            PublicIPAddress = null;
-                        }
-                    }
-                    catch (Exception getAddrExcp)
-                    {
-                        logger.Error("Exception StartSTUNClient GetPublicIPAddress. " + getAddrExcp.Message);
-                    }
-
-                    m_stunClientMRE.Reset();
-                    m_stunClientMRE.WaitOne(60000);
+                    logger.Debug($"The STUN client was able to determine the public IP address as {publicIP}");
+                }
+                else
+                {
+                    logger.Debug("The STUN client could not determine the public IP address.");
                 }
 
-                logger.Warn("STUN client thread stopped.");
+                return publicIP;
             }
-            catch (Exception excp)
+            catch (Exception getAddrExcp)
             {
-                logger.Error("Exception StartSTUNClient. " + excp.Message);
+                logger.Error("Exception GetPublicIPAddress. " + getAddrExcp.Message);
+                return null;
             }
         }
     }

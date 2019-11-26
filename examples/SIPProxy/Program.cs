@@ -2,33 +2,16 @@
 // Filename: Program.cs
 //
 // Description: An example of a simple SIP Proxy Server. 
+//
+// Author(s):
+// Aaron Clauson (aaron@sipsorcery.com)
 // 
 // History: 
-// 15 Nov 2016	Aaron Clauson	Created.
-// 13 Oct 2019  Aaron Clauson   Updated to use teh SIPSorcery nuget package.
+// 15 Nov 2016	Aaron Clauson	Created, Hobart, Australia.
+// 13 Oct 2019  Aaron Clauson   Updated to use the SIPSorcery nuget package.
 //
 // License: 
-// This software is licensed under the BSD License http://www.opensource.org/licenses/bsd-license.php
-//
-// Copyright (c) 2016 Aaron Clauson (aaron@sipsorcery.com), SIP Sorcery PTY LTD, Hobart, Australia (www.sipsorcery.com)
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without modification, are permitted provided that 
-// the following conditions are met:
-//
-// Redistributions of source code must retain the above copyright notice, this list of conditions and the following disclaimer. 
-// Redistributions in binary form must reproduce the above copyright notice, this list of conditions and the following 
-// disclaimer in the documentation and/or other materials provided with the distribution. Neither the name of SIPSorcery Ltd. 
-// nor the names of its contributors may be used to endorse or promote products derived from this software without specific 
-// prior written permission. 
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, 
-// BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. 
-// IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, 
-// OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, 
-// OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, 
-// OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE 
-// POSSIBILITY OF SUCH DAMAGE.
+// BSD 3-Clause "New" or "Revised" License, see included LICENSE.md file.
 //-----------------------------------------------------------------------------
 
 //-----------------------------------------------------------------------------
@@ -49,15 +32,15 @@
 // $ sipp 127.0.0.1 -sf REGISTER_client.xml -inf REGISTER_client.csv -m 1 -trace_msg -trace_err 
 //-----------------------------------------------------------------------------
 
+using Microsoft.Extensions.Logging;
+using SIPSorcery.SIP;
+using SIPSorcery.SIP.App;
+using SIPSorcery.Sys;
 using System;
 using System.Collections.Generic;
 using System.Net;
 using System.Threading;
 using System.Xml;
-using Microsoft.Extensions.Logging;
-using SIPSorcery.SIP;
-using SIPSorcery.SIP.App;
-using SIPSorcery.Sys;
 
 namespace SIPSorcery.SIPProxy
 {
@@ -99,7 +82,7 @@ namespace SIPSorcery.SIPProxy
                 logger = SIPSorcery.Sys.Log.Logger;
 
                 // Configure the SIP transport layer.
-                _sipTransport = new SIPTransport(SIPDNSManager.ResolveSIPService, new SIPTransactionEngine());
+                _sipTransport = new SIPTransport();
 
                 if (_sipSocketsNode != null)
                 {
@@ -110,8 +93,7 @@ namespace SIPSorcery.SIPProxy
                 else
                 {
                     // Use default options to set up a SIP channel.
-                    int port = FreePort.FindNextAvailableUDPPort(_defaultSIPUdpPort);
-                    var sipChannel = new SIPUDPChannel(new IPEndPoint(_defaultLocalAddress, port));
+                    var sipChannel = new SIPUDPChannel(new IPEndPoint(_defaultLocalAddress, _defaultSIPUdpPort));
                     _sipTransport.AddSIPChannel(sipChannel);
                 }
 
@@ -160,7 +142,7 @@ namespace SIPSorcery.SIPProxy
                 }
                 else if (sipRequest.Method == SIPMethodsEnum.OPTIONS)
                 {
-                    SIPNonInviteTransaction optionsTransaction = _sipTransport.CreateNonInviteTransaction(sipRequest, remoteEndPoint, localSIPEndPoint, null);
+                    SIPNonInviteTransaction optionsTransaction = _sipTransport.CreateNonInviteTransaction(sipRequest, null);
                     SIPResponse optionsResponse = SIPTransport.GetResponse(sipRequest, SIPResponseStatusCodesEnum.Ok, null);
                     optionsTransaction.SendFinalResponse(optionsResponse);
                 }
@@ -191,7 +173,7 @@ namespace SIPSorcery.SIPProxy
                         registerResponse = SIPResponseStatusCodesEnum.BadRequest;
                     }
 
-                    SIPNonInviteTransaction registerTransaction = _sipTransport.CreateNonInviteTransaction(sipRequest, remoteEndPoint, localSIPEndPoint, null);
+                    SIPNonInviteTransaction registerTransaction = _sipTransport.CreateNonInviteTransaction(sipRequest, null);
                     SIPResponse okResponse = SIPTransport.GetResponse(sipRequest, registerResponse, null);
                     registerTransaction.SendFinalResponse(okResponse);
                 }
@@ -204,7 +186,7 @@ namespace SIPSorcery.SIPProxy
             {
                 logger.LogDebug(sipRequest.Method + " request processing not implemented for " + sipRequest.URI.ToParameterlessString() + " from " + remoteEndPoint + ".");
 
-                SIPNonInviteTransaction notImplTransaction = _sipTransport.CreateNonInviteTransaction(sipRequest, remoteEndPoint, localSIPEndPoint, null);
+                SIPNonInviteTransaction notImplTransaction = _sipTransport.CreateNonInviteTransaction(sipRequest, null);
                 SIPResponse notImplResponse = SIPTransport.GetResponse(sipRequest, SIPResponseStatusCodesEnum.NotImplemented, null);
                 notImplTransaction.SendFinalResponse(notImplResponse);
             }

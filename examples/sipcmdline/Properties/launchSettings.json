@@ -1,0 +1,11 @@
+{
+  "profiles": {
+    "sipcmdline": {
+      "commandName": "Project",
+      "commandLineArgs": "-d sips:[::1]"
+    },
+    "Docker": {
+      "commandName": "Docker"
+    }
+  }
+}

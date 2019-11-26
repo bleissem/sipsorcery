@@ -2,32 +2,15 @@
 // Filename: SIPClient.cs
 //
 // Description: A SIP client for making and receiving calls. 
-// 
+//
+// Author(s):
+// Aaron Clauson (aaron@sipsorcery.com)
+//  
 // History:
-// 27 Mar 2012	Aaron Clauson	Refactored.
+// 27 Mar 2012	Aaron Clauson	Refactored, Hobart, Australia.
 //
 // License: 
-// This software is licensed under the BSD License http://www.opensource.org/licenses/bsd-license.php
-//
-// Copyright (c) 2006-2012 Aaron Clauson (aaron@sipsorcery.com), SIP Sorcery PTY LTD, Hobart, Australia (www.sipsorcery.com)
-// All rights reserved.
-//
-// Redistribution and use in source and binary forms, with or without modification, are permitted provided that 
-// the following conditions are met:
-//
-// Redistributions of source code must retain the above copyright notice, this list of conditions and the following disclaimer. 
-// Redistributions in binary form must reproduce the above copyright notice, this list of conditions and the following 
-// disclaimer in the documentation and/or other materials provided with the distribution. Neither the name of SIPSorcery Ltd. 
-// nor the names of its contributors may be used to endorse or promote products derived from this software without specific 
-// prior written permission. 
-//
-// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, 
-// BUT NOT LIMITED TO, THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE DISCLAIMED. 
-// IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, 
-// OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, 
-// OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY, 
-// OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE 
-// POSSIBILITY OF SUCH DAMAGE.
+// BSD 3-Clause "New" or "Revised" License, see included LICENSE.md file.
 //-----------------------------------------------------------------------------
 
 using System;
@@ -109,19 +92,25 @@ namespace SIPSorcery.SoftPhone
                     {
                         // Use a custom DNS server.
                         m_DnsServer = m_DnsServer.Contains(":") ? m_DnsServer : m_DnsServer + ":53";
-                        DNSManager.SetDNSServers(new List<IPEndPoint> { IPSocket.GetIPEndPoint(m_DnsServer) });
+                        DNSManager.SetDNSServers(new List<IPEndPoint> { IPSocket.ParseSocketString(m_DnsServer) });
                     }
 
                     // Configure the SIP transport layer.
                     m_sipTransport = new SIPTransport(SIPDNSManager.ResolveSIPService, new SIPTransactionEngine());
+                    bool sipChannelAdded = false;
 
                     if (m_sipSocketsNode != null)
                     {
                         // Set up the SIP channels based on the app.config file.
                         List<SIPChannel> sipChannels = SIPTransportConfig.ParseSIPChannelsNode(m_sipSocketsNode);
-                        m_sipTransport.AddSIPChannel(sipChannels);
+                        if (sipChannels?.Count > 0)
+                        {
+                            m_sipTransport.AddSIPChannel(sipChannels);
+                            sipChannelAdded = true;
+                        }
                     }
-                    else
+
+                    if(sipChannelAdded == false)
                     {
                         // Use default options to set up a SIP channel.
                         int port = FreePort.FindNextAvailableUDPPort(_defaultSIPUdpPort);
@@ -258,7 +247,7 @@ namespace SIPSorcery.SoftPhone
             m_uac.CallFailed += CallFailed;
 
             // Get the SDP requesting that the public IP address be used if the host on the call destination is not a private IP address.
-            SDP sdp = _mediaManager.GetSDP(!(IPSocket.IsIPAddress(callURI.Host) && IPSocket.IsPrivateAddress(callURI.Host)));
+            SDP sdp = _mediaManager.GetSDP(!(IPAddress.TryParse(callURI.Host, out _) && IPSocket.IsPrivateAddress(callURI.Host)));
             System.Diagnostics.Debug.WriteLine(sdp.ToString());
             SIPCallDescriptor callDescriptor = new SIPCallDescriptor(sipUsername, sipPassword, callURI.ToString(), fromHeader, null, null, null, null, SIPCallDirection.Out, _sdpMimeContentType, sdp.ToString(), null);
             m_uac.Call(callDescriptor);
