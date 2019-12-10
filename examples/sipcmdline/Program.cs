@@ -65,8 +65,8 @@ namespace SIPSorcery
 {
     class Program
     {
-        private const int DEFAULT_SIP_CLIENT_PORT = 9060;
-        private const int DEFAULT_SIPS_CLIENT_PORT = 9061;
+        private const int DEFAULT_SIP_CLIENT_PORT = 0;
+        private const int DEFAULT_SIPS_CLIENT_PORT = 0;
 
         private static Microsoft.Extensions.Logging.ILogger logger;
 
@@ -162,7 +162,10 @@ namespace SIPSorcery
                     SIPTransport sipTransport = new SIPTransport();
                     sipTransport.AddSIPChannel(sipChannel);
 
-                    if (sendCount > 0 && options.Period > 0) await Task.Delay(options.Period * 1000);
+                    if (sendCount > 0 && options.Period > 0)
+                    {
+                        await Task.Delay(options.Period * 1000);
+                    }
 
                     sendCount++;
 
@@ -225,9 +228,9 @@ namespace SIPSorcery
 
             SIPURI dstUri = null;
             // Don't attempt a SIP URI parse for serialised SIPEndPoints.
-            if (Regex.IsMatch(dst, "^(udp|tcp|tls|ws|wss)") == false && SIPURI.TryParse(dst))
+            if (Regex.IsMatch(dst, "^(udp|tcp|tls|ws|wss)") == false && SIPURI.TryParse(dst, out var argUri))
             {
-                dstUri = SIPURI.ParseSIPURIRelaxed(dst);
+                dstUri = argUri;
             }
             else
             {
@@ -258,21 +261,29 @@ namespace SIPSorcery
         {
             TaskCompletionSource<bool> tcs = new TaskCompletionSource<bool>();
 
+            //UdpClient hepClient = new UdpClient(0, AddressFamily.InterNetwork);
+
             try
             {
                 sipTransport.SIPRequestOutTraceEvent += (localEP, remoteEP, req) =>
                 {
                     logger.LogDebug($"Request sent: {localEP}->{remoteEP}");
                     logger.LogDebug(req.ToString());
+
+                    //var hepBuffer = HepPacket.GetBytes(localEP, remoteEP, DateTimeOffset.Now, 333, "myHep", req.ToString());
+                    //hepClient.SendAsync(hepBuffer, hepBuffer.Length, "192.168.11.49", 9060);
                 };
 
                 sipTransport.SIPResponseInTraceEvent += (localEP, remoteEP, resp) =>
                 {
                     logger.LogDebug($"Response received: {localEP}<-{remoteEP}");
                     logger.LogDebug(resp.ToString());
+
+                    //var hepBuffer = HepPacket.GetBytes(remoteEP, localEP, DateTimeOffset.Now, 333, "myHep", resp.ToString());
+                    //hepClient.SendAsync(hepBuffer, hepBuffer.Length, "192.168.11.49", 9060);
                 };
 
-                var optionsRequest = sipTransport.GetRequest(SIPMethodsEnum.OPTIONS, dst);
+                var optionsRequest = SIPRequest.GetRequest(SIPMethodsEnum.OPTIONS, dst);
 
                 sipTransport.SIPTransportResponseReceived += (SIPEndPoint localSIPEndPoint, SIPEndPoint remoteEndPoint, SIPResponse sipResponse) =>
                 {

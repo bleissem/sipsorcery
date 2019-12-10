@@ -350,18 +350,23 @@ namespace SIPSorcery.SIP
                             {
                                 throw new SIPValidationException(SIPValidationFieldsEnum.URI, "The SIP URI host portion contained an invalid character.");
                             }
-                            else if(sipURI.Host.IndexOf(':') != sipURI.Host.LastIndexOf(':'))
+                            else if (sipURI.Host.IndexOf(':') != sipURI.Host.LastIndexOf(':'))
                             {
                                 // If the host contains multiple ':' characters then it must be an IPv6 address which require a start '[' and and end ']'.
-                                if(sipURI.Host.ToCharArray()[0] != '[')
+                                if (sipURI.Host.ToCharArray()[0] != '[')
                                 {
                                     throw new SIPValidationException(SIPValidationFieldsEnum.URI, "The SIP URI host portion contained an IPv6 address that was missing the start '['.");
                                 }
-                                else if(!sipURI.Host.EndsWith("]") &&
+                                else if (!sipURI.Host.EndsWith("]") &&
                                     (sipURI.Host.ToCharArray().Length < sipURI.Host.LastIndexOf(':') + 1 ||
                                     sipURI.Host.ToCharArray()[sipURI.Host.LastIndexOf(':') - 1] != ']'))
                                 {
                                     throw new SIPValidationException(SIPValidationFieldsEnum.URI, "The SIP URI host portion contained an IPv6 address that was missing the end ']'.");
+                                }
+                                //rj2: apply robustness principle mentioned in RFC 5118 4.10
+                                while (sipURI.Host.Contains(":::"))
+                                {
+                                    sipURI.Host = sipURI.Host.Replace(":::", "::");
                                 }
                             }
                         }
@@ -404,15 +409,16 @@ namespace SIPSorcery.SIP
             }
         }
 
-        public static bool TryParse(string uri)
+        public static bool TryParse(string uriStr, out SIPURI uri)
         {
             try
             {
-                ParseSIPURIRelaxed(uri);
-                return true;
+                uri = ParseSIPURIRelaxed(uriStr);
+                return (uri != null);
             }
             catch
             {
+                uri = null;
                 return false;
             }
         }

@@ -37,7 +37,7 @@ namespace SIPSorcery.SIP
     {
         InviteServer = 1,   // User agent server transaction.
         NonInvite = 2,
-        InivteClient = 3,   // User agent client transaction.
+        InviteClient = 3,   // User agent client transaction.
     }
 
     /// <note>
@@ -128,20 +128,6 @@ namespace SIPSorcery.SIP
         {
             get { return m_transactionRequest.Header.From.FromUserField; }
         }
-
-
-        /// <summary>
-        /// The remote socket that caused the transaction to be created or the socket a newly 
-        /// created transaction request was sent to. 
-        /// </summary>
-        //public SIPEndPoint RemoteEndPoint;
-
-        /// <summary>
-        /// The local SIP endpoint the remote request was received on or if created by us 
-        /// the local SIP end point used to send the initial transaction request (note will be null
-        /// until the request is sent).
-        /// </summary>
-        //public SIPEndPoint LocalSIPEndPoint;
 
         /// <summary>
         /// If not null this value is where ALL transaction requests should be sent to.
@@ -398,13 +384,13 @@ namespace SIPSorcery.SIP
             await m_sipTransport.SendRequestAsync(dstEndPoint, sipRequest);
         }
 
-        public void SendRequest(SIPRequest sipRequest)
+        public async void SendRequest(SIPRequest sipRequest)
         {
             var lookupResult = m_sipTransport.GetRequestEndPoint(sipRequest, OutboundProxy, true);
 
             if (lookupResult != null && lookupResult.LookupError == null)
             {
-                SendRequest(lookupResult.GetSIPEndPoint(), sipRequest).Wait();
+                await SendRequest(lookupResult.GetSIPEndPoint(), sipRequest);
             }
             else
             {
@@ -412,16 +398,16 @@ namespace SIPSorcery.SIP
             }
         }
 
-        public void SendReliableRequest()
+        public async void SendReliableRequest()
         {
             FireTransactionTraceMessage($"Transaction send request reliable {TransactionRequest.StatusLine}");
 
-            if (TransactionType == SIPTransactionTypesEnum.InivteClient && this.TransactionRequest.Method == SIPMethodsEnum.INVITE)
+            if (TransactionType == SIPTransactionTypesEnum.InviteClient && this.TransactionRequest.Method == SIPMethodsEnum.INVITE)
             {
                 UpdateTransactionState(SIPTransactionStatesEnum.Calling);
             }
 
-            m_sipTransport.SendSIPReliable(this);
+            await m_sipTransport.SendSIPReliableAsync(this);
         }
 
         protected SIPResponse GetInfoResponse(SIPRequest sipRequest, SIPResponseStatusCodesEnum sipResponseCode)
@@ -482,7 +468,7 @@ namespace SIPSorcery.SIP
 
             // We don't keep track of previous provisional response ACK's so always return OK if the request matched the 
             // transaction and got this far.
-            var prackResponse = SIPTransport.GetResponse(sipRequest, SIPResponseStatusCodesEnum.Ok, null);
+            var prackResponse = SIPResponse.GetResponse(sipRequest, SIPResponseStatusCodesEnum.Ok, null);
             m_sipTransport.SendResponse(prackResponse);
         }
 
