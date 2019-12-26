@@ -17,7 +17,9 @@
 
 using System;
 using System.Collections.Generic;
+using System.Net.Sockets;
 using System.Threading;
+using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using SIPSorcery.Sys;
 
@@ -126,14 +128,14 @@ namespace SIPSorcery.SIP.App
             }
         }
 
-        public void GotNotificationRequest(SIPEndPoint localSIPEndPoint, SIPEndPoint remoteEndPoint, SIPRequest sipRequest)
+        public async Task GotNotificationRequest(SIPEndPoint localSIPEndPoint, SIPEndPoint remoteEndPoint, SIPRequest sipRequest)
         {
             try
             {
                 logger.LogDebug("SIPNotifierClient GotNotificationRequest for " + sipRequest.Method + " " + sipRequest.URI.ToString() + " " + sipRequest.Header.CSeq + ".");
 
                 SIPResponse okResponse = SIPResponse.GetResponse(sipRequest, SIPResponseStatusCodesEnum.Ok, null);
-                m_sipTransport.SendResponse(okResponse);
+                await m_sipTransport.SendResponseAsync(okResponse);
 
                 //logger.LogDebug(sipRequest.ToString());
 
@@ -267,7 +269,7 @@ namespace SIPSorcery.SIP.App
                     subscribeTransaction.NonInviteTransactionFinalResponseReceived += SubscribeTransactionFinalResponseReceived;
                     subscribeTransaction.NonInviteTransactionTimedOut += SubsribeTransactionTimedOut;
 
-                    m_sipTransport.SendSIPReliable(subscribeTransaction);
+                    m_sipTransport.SendTransaction(subscribeTransaction);
 
                     LastSubscribeAttempt = DateTime.Now;
                 }
@@ -290,7 +292,7 @@ namespace SIPSorcery.SIP.App
             m_waitForSubscribeResponse.Set();
         }
 
-        private void SubscribeTransactionFinalResponseReceived(SIPEndPoint localSIPEndPoint, SIPEndPoint remoteEndPoint, SIPTransaction sipTransaction, SIPResponse sipResponse)
+        private Task<SocketError> SubscribeTransactionFinalResponseReceived(SIPEndPoint localSIPEndPoint, SIPEndPoint remoteEndPoint, SIPTransaction sipTransaction, SIPResponse sipResponse)
         {
             try
             {
@@ -367,7 +369,7 @@ namespace SIPSorcery.SIP.App
                             subscribeTransaction.NonInviteTransactionFinalResponseReceived += SubscribeTransactionFinalResponseReceived;
                             subscribeTransaction.NonInviteTransactionTimedOut += SubsribeTransactionTimedOut;
 
-                            m_sipTransport.SendSIPReliable(subscribeTransaction);
+                            m_sipTransport.SendTransaction(subscribeTransaction);
                         }
                     }
                     else
@@ -390,12 +392,16 @@ namespace SIPSorcery.SIP.App
                     SubscriptionFailed(m_resourceURI, sipResponse.Status, "Subscribe failed with response " + sipResponse.StatusCode + " " + sipResponse.ReasonPhrase + ".");
                     m_waitForSubscribeResponse.Set();
                 }
+
+                return Task.FromResult(SocketError.Success);
             }
             catch (Exception excp)
             {
                 logger.LogError("Exception SubscribeTransactionFinalResponseReceived. " + excp.Message);
                 SubscriptionFailed(m_resourceURI, SIPResponseStatusCodesEnum.InternalServerError, "Exception processing subscribe response. " + excp.Message);
                 m_waitForSubscribeResponse.Set();
+
+                return Task.FromResult(SocketError.Fault);
             }
         }
     }

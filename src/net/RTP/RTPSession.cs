@@ -37,6 +37,7 @@ namespace SIPSorcery.Net
         private const int SRTP_AUTH_KEY_LENGTH = 10;
         private const int DEFAULT_AUDIO_CLOCK_RATE = 8000;
         public const int H264_RTP_HEADER_LENGTH = 2;
+        public const string TELEPHONE_EVENT_ATTRIBUTE = "telephone-event";
 
         public const int RTP_EVENT_DEFAULT_SAMPLE_PERIOD_MS = 50; // Default sample period for an RTP event as specified by RFC2833.
 
@@ -47,7 +48,9 @@ namespace SIPSorcery.Net
         private IPEndPoint m_lastReceiveFromEndPoint;
         private bool m_rtpEventInProgress;               // Gets set to true when an RTP event is being sent and the normal stream is interrupted.
         private uint m_lastRtpTimestamp;                 // The last timestamp used in an RTP packet.    
-        private bool m_rtpEventSupport;                  // True if this session is supporting RTP events.        
+        private bool m_rtpEventSupport;                  // True if this session is supporting RTP events.
+        private int m_remoteRtpEventPayloadID;           // If the remote party supports RTP events this is the RTP header payload ID they are using.
+        private bool m_isClosed;
 
         public uint Ssrc { get; private set; }
         public ushort SeqNum { get; private set; }
@@ -99,6 +102,11 @@ namespace SIPSorcery.Net
         public IPEndPoint DestinationEndPoint;
 
         /// <summary>
+        /// The SDP offered by the remote call party for this session.
+        /// </summary>
+        public SDP RemoteSDP { get; private set; }
+
+        /// <summary>
         /// Gets fired when the session detects that the remote end point 
         /// has changed. This is useful because the RTP socket advertised in an SDP
         /// payload will often be different to the one the packets arrive from due
@@ -111,9 +119,16 @@ namespace SIPSorcery.Net
         public event Action<IPEndPoint, IPEndPoint> OnReceiveFromEndPointChanged;
 
         /// <summary>
-        /// Gest fired when an RTP packet is received, has been identified and is ready for processing.
+        /// Gets fired when an RTP packet is received, has been identified and is ready for processing.
         /// </summary>
         public event Action<byte[]> OnReceivedSampleReady;
+
+        /// <summary>
+        /// Gets fired when an RTP event is detected on the remote call party's RTP stream.
+        /// </summary>
+        public event Action<RTPEvent> OnRtpEvent;
+
+        public event Action<string> OnRtpClosed;
 
         /// <summary>
         /// Creates a new RTP session. The synchronisation source and sequence number are initialised to
@@ -123,8 +138,9 @@ namespace SIPSorcery.Net
         /// type ID field in the RTP header. A default media announcement will be created.</param>
         /// <param name="srtpProtect">Optional secure DTLS context for encrypting RTP packets.</param>
         /// <param name="srtcpProtect">Optional secure DTLS context for encrypting RTCP packets.</param>
-        /// <param name="rtpEventSupport">True if RTP event sending and reciving should be supported.</param>
-        public RTPSession(int formatTypeID, ProtectRtpPacket srtpProtect, ProtectRtpPacket srtcpProtect, bool rtpEventSupport)
+        /// <param name="rtpEventSupport">True if RTP event sending and receiving should be supported.</param>
+        /// <param name="addrFamily">Determines whether the RTP channel will use an IPv4 or IPv6 socket.</param>
+        public RTPSession(int formatTypeID, ProtectRtpPacket srtpProtect, ProtectRtpPacket srtcpProtect, bool rtpEventSupport, AddressFamily addrFamily)
         {
             MediaFormat = new SDPMediaFormat(formatTypeID);
             MediaAnnouncement = new SDPMediaAnnouncement
@@ -138,8 +154,9 @@ namespace SIPSorcery.Net
             {
                 int clockRate = MediaFormat.GetClockRate();
                 SDPMediaFormat rtpEventFormat = new SDPMediaFormat(DTMF_EVENT_PAYLOAD_ID);
-                rtpEventFormat.SetFormatAttribute($"telephone-event/{clockRate}");
-                rtpEventFormat.SetFormatParameterAttribute("0-15");
+                rtpEventFormat.SetFormatAttribute($"{TELEPHONE_EVENT_ATTRIBUTE}/{clockRate}");
+                rtpEventFormat.SetFormatParameterAttribute("0-16");
+                MediaAnnouncement.MediaFormats.Add(rtpEventFormat);
             }
 
             m_rtpEventSupport = rtpEventSupport;
@@ -147,21 +164,50 @@ namespace SIPSorcery.Net
             SrtpProtect = srtpProtect;
             SrtcpProtect = srtcpProtect;
 
-            Initialise();
+            Initialise(addrFamily);
         }
 
-        private void Initialise()
+        /// <summary>
+        /// Initialises the RTP session state and starts the RTP channel UDP sockets.
+        /// </summary>
+        private void Initialise(AddressFamily addrFamily)
         {
             Ssrc = Convert.ToUInt32(Crypto.GetRandomInt(0, Int32.MaxValue));
             SeqNum = Convert.ToUInt16(Crypto.GetRandomInt(0, UInt16.MaxValue));
 
-            RtpChannel = new RTPChannel(IPAddress.Any, true);
+            RtpChannel = new RTPChannel((addrFamily == AddressFamily.InterNetworkV6) ? IPAddress.IPv6Any : IPAddress.Any, true);
 
             MediaAnnouncement.Port = RtpChannel.RTPPort;
             RtpChannel.OnRTPDataReceived += RtpPacketReceived;
+            RtpChannel.OnClosed += OnRTPChannelClosed;
 
             // Start the RTP and Control socket receivers.
             RtpChannel.Start();
+        }
+
+        /// <summary>
+        /// Sets the remote SDP offer for this RTP session. It contains required information about payload ID's
+        /// for media formats and RTP events.
+        /// </summary>
+        /// <param name="sdp">The SDP from the remote call party.</param>
+        public void SetRemoteSDP(SDP sdp)
+        {
+            RemoteSDP = sdp;
+
+            foreach (var announcement in sdp.Media.Where(x => x.Media == SDPMediaTypesEnum.audio))
+            {
+                foreach (var mediaFormat in announcement.MediaFormats)
+                {
+                    if (mediaFormat.FormatAttribute?.StartsWith(TELEPHONE_EVENT_ATTRIBUTE) == true)
+                    {
+                        if (!int.TryParse(mediaFormat.FormatID, out m_remoteRtpEventPayloadID))
+                        {
+                            logger.LogWarning("The media format on the telpehone event attribute was not a valid integer.");
+                        }
+                        break;
+                    }
+                }
+            }
         }
 
         public void SendAudioFrame(uint timestamp, byte[] buffer)
@@ -185,7 +231,10 @@ namespace SIPSorcery.Net
                     rtpPacket.Header.SyncSource = Ssrc;
                     rtpPacket.Header.SequenceNumber = SeqNum++;
                     rtpPacket.Header.Timestamp = timestamp;
-                    rtpPacket.Header.MarkerBit = ((offset + payloadLength) >= buffer.Length) ? 1 : 0; // Set marker bit for the last packet in the frame.
+                    // RFC3551 specifies that for audio the marker bit should always be 0 except for when returning
+                    // from silence suppression. For video the marker bit DOES get set to 1 for the last packet
+                    // in a frame.
+                    rtpPacket.Header.MarkerBit = 0;
                     rtpPacket.Header.PayloadType = FormatTypeID;
 
                     Buffer.BlockCopy(buffer, offset, rtpPacket.Payload, 0, payloadLength);
@@ -426,10 +475,10 @@ namespace SIPSorcery.Net
         /// can be cancelled using the cancellation token.
         /// </summary>
         /// <param name="rtpEvent">The RTP event to send.</param>
-        ///  <param name="cts">Token source to allow the operation to be cancelled prematurely.</param>
+        ///  <param name="cancellationToken">CancellationToken to allow the operation to be cancelled prematurely.</param>
         public async Task SendDtmfEvent(
             RTPEvent rtpEvent,
-            CancellationTokenSource cts)
+            CancellationToken cancellationToken)
         {
             if (m_rtpEventInProgress == true || DestinationEndPoint == null)
             {
@@ -465,7 +514,7 @@ namespace SIPSorcery.Net
                 rtpEvent.Duration = rtpTimestampStep;
 
                 // Send the start of event packets.
-                for (int i = 0; i < RTPEvent.DUPLICATE_COUNT && !cts.IsCancellationRequested; i++)
+                for (int i = 0; i < RTPEvent.DUPLICATE_COUNT && !cancellationToken.IsCancellationRequested; i++)
                 {
                     byte[] buffer = rtpEvent.GetEventPayload();
 
@@ -476,12 +525,12 @@ namespace SIPSorcery.Net
                     PacketsSent++;
                 }
 
-                await Task.Delay(samplePeriod, cts.Token);
+                await Task.Delay(samplePeriod, cancellationToken);
 
                 if (!rtpEvent.EndOfEvent)
                 {
                     // Send the progressive event packets 
-                    while ((rtpEvent.Duration + rtpTimestampStep) < rtpEvent.TotalDuration && !cts.IsCancellationRequested)
+                    while ((rtpEvent.Duration + rtpTimestampStep) < rtpEvent.TotalDuration && !cancellationToken.IsCancellationRequested)
                     {
                         rtpEvent.Duration += rtpTimestampStep;
                         byte[] buffer = rtpEvent.GetEventPayload();
@@ -491,11 +540,11 @@ namespace SIPSorcery.Net
                         PacketsSent++;
                         SeqNum++;
 
-                        await Task.Delay(samplePeriod, cts.Token);
+                        await Task.Delay(samplePeriod, cancellationToken);
                     }
 
                     // Send the end of event packets.
-                    for (int j = 0; j < RTPEvent.DUPLICATE_COUNT && !cts.IsCancellationRequested; j++)
+                    for (int j = 0; j < RTPEvent.DUPLICATE_COUNT && !cancellationToken.IsCancellationRequested; j++)
                     {
                         rtpEvent.EndOfEvent = true;
                         rtpEvent.Duration = rtpEvent.TotalDuration;
@@ -531,13 +580,12 @@ namespace SIPSorcery.Net
         /// <returns>An Session Description Protocol object that can be sent to a remote callee.</returns>
         public SDP GetSDP(IPAddress localAddress)
         {
-            var sdp = new SDP()
+            var sdp = new SDP(localAddress)
             {
                 SessionId = Crypto.GetRandomInt(5).ToString(),
-                Address = localAddress.ToString(),
                 SessionName = "sipsorcery",
                 Timing = "0 0",
-                Connection = new SDPConnectionInformation(localAddress.ToString()),
+                Connection = new SDPConnectionInformation(localAddress),
             };
 
             sdp.Media.Add(MediaAnnouncement);
@@ -548,9 +596,21 @@ namespace SIPSorcery.Net
         /// <summary>
         /// Close the session and RTP channel.
         /// </summary>
-        public void Close()
+        public void CloseSession(string reason)
         {
-            RtpChannel?.Close();
+            if (!m_isClosed)
+            {
+                m_isClosed = true;
+
+                if (RtpChannel != null)
+                {
+                    RtpChannel.OnRTPDataReceived -= RtpPacketReceived;
+                    RtpChannel.OnClosed -= OnRTPChannelClosed;
+                    RtpChannel.Close(reason);
+                }
+
+                OnRtpClosed?.Invoke(reason);
+            }
         }
 
         /// <summary>
@@ -568,27 +628,15 @@ namespace SIPSorcery.Net
 
             var rtpPacket = new RTPPacket(buffer);
 
-            OnReceivedSampleReady?.Invoke(rtpPacket.Payload);
-        }
-
-        /// <summary>
-        /// Processes received RTP packets.
-        /// </summary>
-        /// <param name="buffer">The raw data received on the RTP socket.</param>
-        /// <param name="offset">Offset in the buffer that the received data starts from.</param>
-        /// <param name="count">The number of bytes received.</param>
-        /// <param name="remoteEndPoint">The remote end point the receive was from.</param>
-        /// <returns>An RTP packet.</returns>
-        [Obsolete]
-        public RTPPacket RtpReceive(byte[] buffer, int offset, int count, IPEndPoint remoteEndPoint)
-        {
-            if (m_lastReceiveFromEndPoint == null || !m_lastReceiveFromEndPoint.Equals(remoteEndPoint))
+            if (m_remoteRtpEventPayloadID != 0 && rtpPacket.Header.PayloadType == m_remoteRtpEventPayloadID)
             {
-                OnReceiveFromEndPointChanged?.Invoke(m_lastReceiveFromEndPoint, remoteEndPoint);
-                m_lastReceiveFromEndPoint = remoteEndPoint;
+                RTPEvent rtpEvent = new RTPEvent(rtpPacket.Payload);
+                OnRtpEvent?.Invoke(rtpEvent);
             }
-
-            return new RTPPacket(buffer.Skip(offset).Take(count).ToArray());
+            else
+            {
+                OnReceivedSampleReady?.Invoke(rtpPacket.Payload);
+            }
         }
 
         /// <summary>
@@ -677,6 +725,14 @@ namespace SIPSorcery.Net
             rtpJpegHeader[7] = (byte)(height / 8);
 
             return rtpJpegHeader;
+        }
+
+        /// <summary>
+        /// Event handler for the RTP channel closure.
+        /// </summary>
+        private void OnRTPChannelClosed(string reason)
+        {
+            CloseSession(reason);
         }
     }
 }

@@ -10,6 +10,7 @@
 //-----------------------------------------------------------------------------
 
 using System;
+using Microsoft.Extensions.Logging;
 using Xunit;
 
 namespace SIPSorcery.Sys.UnitTests
@@ -17,10 +18,18 @@ namespace SIPSorcery.Sys.UnitTests
     [Trait("Category", "unit")]
     public class UtilitiesUnitTest
     {
+        private Microsoft.Extensions.Logging.ILogger logger = null;
+
+        public UtilitiesUnitTest(Xunit.Abstractions.ITestOutputHelper output)
+        {
+            logger = SIPSorcery.UnitTests.TestLogHelper.InitTestLogger(output);
+        }
+
         [Fact]
         public void ReverseUInt16SampleTest()
         {
-            Console.WriteLine(System.Reflection.MethodBase.GetCurrentMethod().Name);
+            logger.LogDebug("--> " + System.Reflection.MethodBase.GetCurrentMethod().Name);
+            logger.BeginScope(System.Reflection.MethodBase.GetCurrentMethod().Name);
 
             ushort testNum = 45677;
             byte[] testNumBytes = BitConverter.GetBytes(testNum);
@@ -33,20 +42,20 @@ namespace SIPSorcery.Sys.UnitTests
             int testNumByteCount = 0;
             foreach (byte testNumByte in testNumBytes)
             {
-                Console.WriteLine("original " + testNumByteCount + ": " + testNumByte.ToString("x"));
+                logger.LogDebug("original " + testNumByteCount + ": " + testNumByte.ToString("x"));
                 testNumByteCount++;
             }
 
             int reverseNumByteCount = 0;
             foreach (byte reverseNumByte in reversedNumBytes)
             {
-                Console.WriteLine("reversed " + reverseNumByteCount + ": " + reverseNumByte.ToString("x"));
+                logger.LogDebug("reversed " + reverseNumByteCount + ": " + reverseNumByte.ToString("x"));
                 reverseNumByteCount++;
             }
 
-            Console.WriteLine("Original=" + testNum);
-            Console.WriteLine("Reversed=" + reversed);
-            Console.WriteLine("Unreversed=" + unReversed);
+            logger.LogDebug("Original=" + testNum);
+            logger.LogDebug("Reversed=" + reversed);
+            logger.LogDebug("Unreversed=" + unReversed);
 
             Assert.True(testNum == unReversed, "Reverse endian operation for uint16 did not work successfully.");
         }
@@ -54,7 +63,8 @@ namespace SIPSorcery.Sys.UnitTests
         [Fact]
         public void ReverseUInt32SampleTest()
         {
-            Console.WriteLine(System.Reflection.MethodBase.GetCurrentMethod().Name);
+            logger.LogDebug("--> " + System.Reflection.MethodBase.GetCurrentMethod().Name);
+            logger.BeginScope(System.Reflection.MethodBase.GetCurrentMethod().Name);
 
             uint testNum = 123124;
             byte[] testNumBytes = BitConverter.GetBytes(testNum);
@@ -67,20 +77,20 @@ namespace SIPSorcery.Sys.UnitTests
             int testNumByteCount = 0;
             foreach (byte testNumByte in testNumBytes)
             {
-                Console.WriteLine("original " + testNumByteCount + ": " + testNumByte.ToString("x"));
+                logger.LogDebug("original " + testNumByteCount + ": " + testNumByte.ToString("x"));
                 testNumByteCount++;
             }
 
             int reverseNumByteCount = 0;
             foreach (byte reverseNumByte in reversedNumBytes)
             {
-                Console.WriteLine("reversed " + reverseNumByteCount + ": " + reverseNumByte.ToString("x"));
+                logger.LogDebug("reversed " + reverseNumByteCount + ": " + reverseNumByte.ToString("x"));
                 reverseNumByteCount++;
             }
 
-            Console.WriteLine("Original=" + testNum);
-            Console.WriteLine("Reversed=" + reversed);
-            Console.WriteLine("Unreversed=" + unReversed);
+            logger.LogDebug("Original=" + testNum);
+            logger.LogDebug("Reversed=" + reversed);
+            logger.LogDebug("Unreversed=" + unReversed);
 
             Assert.True(testNum == unReversed, "Reverse endian operation for uint32 did not work successfully.");
         }
@@ -88,7 +98,8 @@ namespace SIPSorcery.Sys.UnitTests
         [Fact]
         public void ReverseUInt64SampleTest()
         {
-            Console.WriteLine(System.Reflection.MethodBase.GetCurrentMethod().Name);
+            logger.LogDebug("--> " + System.Reflection.MethodBase.GetCurrentMethod().Name);
+            logger.BeginScope(System.Reflection.MethodBase.GetCurrentMethod().Name);
 
             ulong testNum = 1231265499856464;
             byte[] testNumBytes = BitConverter.GetBytes(testNum);
@@ -101,20 +112,20 @@ namespace SIPSorcery.Sys.UnitTests
             int testNumByteCount = 0;
             foreach (byte testNumByte in testNumBytes)
             {
-                Console.WriteLine("original " + testNumByteCount + ": " + testNumByte.ToString("x"));
+                logger.LogDebug("original " + testNumByteCount + ": " + testNumByte.ToString("x"));
                 testNumByteCount++;
             }
 
             int reverseNumByteCount = 0;
             foreach (byte reverseNumByte in reversedNumBytes)
             {
-                Console.WriteLine("reversed " + reverseNumByteCount + ": " + reverseNumByte.ToString("x"));
+                logger.LogDebug("reversed " + reverseNumByteCount + ": " + reverseNumByte.ToString("x"));
                 reverseNumByteCount++;
             }
 
-            Console.WriteLine("Original=" + testNum);
-            Console.WriteLine("Reversed=" + reversed);
-            Console.WriteLine("Unreversed=" + unReversed);
+            logger.LogDebug("Original=" + testNum);
+            logger.LogDebug("Reversed=" + reversed);
+            logger.LogDebug("Unreversed=" + unReversed);
 
             Assert.True(testNum == unReversed, "Reverse endian operation for uint64 did not work successfully.");
         }

@@ -15,6 +15,7 @@
 
 using System;
 using System.Text;
+using Microsoft.Extensions.Logging;
 using Xunit;
 
 namespace SIPSorcery.Net.UnitTests
@@ -22,12 +23,22 @@ namespace SIPSorcery.Net.UnitTests
     [Trait("Category", "unit")]
     public class RTSPRequestUnitTest
     {
+        private Microsoft.Extensions.Logging.ILogger logger = null;
+
+        public RTSPRequestUnitTest(Xunit.Abstractions.ITestOutputHelper output)
+        {
+            logger = SIPSorcery.UnitTests.TestLogHelper.InitTestLogger(output);
+        }
+
         /// <summary>
         /// Tests that an RTSP request with standard headers can be correctly serialised and parsed.
         /// </summary>
         [Fact]
         public void RTSPRequestWIthStandardHeadersParseTest()
         {
+            logger.LogDebug("--> " + System.Reflection.MethodBase.GetCurrentMethod().Name);
+            logger.BeginScope(System.Reflection.MethodBase.GetCurrentMethod().Name);
+
             int cseq = 23;
             string session = Guid.NewGuid().ToString();
 

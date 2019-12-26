@@ -16,6 +16,8 @@
 //-----------------------------------------------------------------------------
 
 using System;
+using System.Net.Sockets;
+using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 
 namespace SIPSorcery.SIP
@@ -71,6 +73,8 @@ namespace SIPSorcery.SIP
             TransactionFinalResponseReceived += UASInviteTransaction_TransactionResponseReceived;
             TransactionTimedOut += UASInviteTransaction_TransactionTimedOut;
             TransactionRemoved += UASInviteTransaction_TransactionRemoved;
+
+            sipTransport.AddTransaction(this);
         }
 
         private void UASInviteTransaction_TransactionRemoved(SIPTransaction transaction)
@@ -88,12 +92,13 @@ namespace SIPSorcery.SIP
             CDR?.TimedOut();
         }
 
-        private void UASInviteTransaction_TransactionResponseReceived(SIPEndPoint localSIPEndPoint, SIPEndPoint remoteEndPoint, SIPTransaction sipTransaction, SIPResponse sipResponse)
+        private Task<SocketError> UASInviteTransaction_TransactionResponseReceived(SIPEndPoint localSIPEndPoint, SIPEndPoint remoteEndPoint, SIPTransaction sipTransaction, SIPResponse sipResponse)
         {
             logger.LogWarning("UASInviteTransaction received unexpected response, " + sipResponse.ReasonPhrase + " from " + remoteEndPoint.ToString() + ", ignoring.");
+            return Task.FromResult(SocketError.Fault);
         }
 
-        private void UASInviteTransaction_TransactionRequestReceived(SIPEndPoint localSIPEndPoint, SIPEndPoint remoteEndPoint, SIPTransaction sipTransaction, SIPRequest sipRequest)
+        private Task<SocketError> UASInviteTransaction_TransactionRequestReceived(SIPEndPoint localSIPEndPoint, SIPEndPoint remoteEndPoint, SIPTransaction sipTransaction, SIPRequest sipRequest)
         {
             try
             {
@@ -125,19 +130,22 @@ namespace SIPSorcery.SIP
                         SendFinalResponse(declinedResponse);
                     }
                 }
+
+                return Task.FromResult(SocketError.Success);
             }
             catch (Exception excp)
             {
                 logger.LogError("Exception UASInviteTransaction GotRequest. " + excp.Message);
+                return Task.FromResult(SocketError.Fault);
             }
         }
 
-        public override void SendProvisionalResponse(SIPResponse sipResponse)
+        public new Task<SocketError> SendProvisionalResponse(SIPResponse sipResponse)
         {
             try
             {
-                base.SendProvisionalResponse(sipResponse);
                 CDR?.Progress(sipResponse.Status, sipResponse.ReasonPhrase, null, null);
+                return base.SendProvisionalResponse(sipResponse);
             }
             catch (Exception excp)
             {
@@ -146,12 +154,12 @@ namespace SIPSorcery.SIP
             }
         }
 
-        public override void SendFinalResponse(SIPResponse sipResponse)
+        public new void SendFinalResponse(SIPResponse sipResponse)
         {
             try
             {
-                base.SendFinalResponse(sipResponse);
                 CDR?.Answered(sipResponse.StatusCode, sipResponse.Status, sipResponse.ReasonPhrase, null, null);
+                base.SendFinalResponse(sipResponse);
             }
             catch (Exception excp)
             {
@@ -160,18 +168,22 @@ namespace SIPSorcery.SIP
             }
         }
 
+        /// <summary>
+        /// Cancels this transaction stopping any further processing or transmission of a preivously
+        /// generated final response.
+        /// </summary>
+        /// <returns>A socket error with the result of the cancel.</returns>
         public void CancelCall()
         {
             try
             {
                 if (TransactionState == SIPTransactionStatesEnum.Calling || TransactionState == SIPTransactionStatesEnum.Trying || TransactionState == SIPTransactionStatesEnum.Proceeding)
                 {
-                    base.Cancel();
+                    base.UpdateTransactionState(SIPTransactionStatesEnum.Cancelled);
+                    UASInviteTransactionCancelled?.Invoke(this);
 
                     SIPResponse cancelResponse = SIPResponse.GetResponse(TransactionRequest, SIPResponseStatusCodesEnum.RequestTerminated, null);
-                    SendFinalResponse(cancelResponse);
-
-                    UASInviteTransactionCancelled?.Invoke(this);
+                    base.SendFinalResponse(cancelResponse);
                 }
                 else
                 {

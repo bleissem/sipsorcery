@@ -15,7 +15,6 @@
 //-----------------------------------------------------------------------------
 
 using System;
-using System.Collections.Generic;
 using System.Net;
 using System.Threading;
 using System.Threading.Tasks;
@@ -31,8 +30,9 @@ namespace SIPSorcery
 {
     class Program
     {
-        private static readonly string DEFAULT_DESTINATION_SIP_URI = "sip:*61@192.168.11.48";
-        //private static readonly string DEFAULT_DESTINATION_SIP_URI = "sip:time@sipsorcery.com";  // Talking Clock.
+        //private static readonly string DEFAULT_DESTINATION_SIP_URI = "sip:127.0.0.1;transport=ws";
+        //private static readonly string DEFAULT_DESTINATION_SIP_URI = "sip:127.0.0.1";
+        private static readonly string DEFAULT_DESTINATION_SIP_URI = "sip:time@sipsorcery.com";  // Talking Clock.
         //private static readonly string DEFAULT_DESTINATION_SIP_URI = "sip:echo@sipsorcery.com"; // Echo Test.
 
         private static Microsoft.Extensions.Logging.ILogger Log = SIPSorcery.Sys.Log.Logger;
@@ -40,7 +40,7 @@ namespace SIPSorcery
         private static WaveFormat _waveFormat = new WaveFormat(8000, 16, 1);  // PCMU format used by both input and output streams.
         private static int INPUT_SAMPLE_PERIOD_MILLISECONDS = 20;           // This sets the frequency of the RTP packets.
 
-        static void Main()
+        static void Main(string[] args)
         {
             Console.WriteLine("SIPSorcery client user agent example.");
             Console.WriteLine("Press ctrl-c to exit.");
@@ -53,31 +53,36 @@ namespace SIPSorcery
             AddConsoleLogger();
 
             SIPURI callUri = SIPURI.ParseSIPURI(DEFAULT_DESTINATION_SIP_URI);
+            if (args != null && args.Length > 0)
+            {
+                if (!SIPURI.TryParse(args[0], out callUri))
+                {
+                    Log.LogWarning($"Command line argument could not be parsed as a SIP URI {args[0]}");
+                }
+            }
             Log.LogInformation($"Call destination {callUri}.");
 
             // Set up a default SIP transport.
             var sipTransport = new SIPTransport();
-            sipTransport.AddSIPChannel(new SIPUDPChannel(new IPEndPoint(IPAddress.Any, 0)));
-
             EnableTraceLogs(sipTransport);
 
-            // Get the IP address the RTP will be sent from. While we can listen on IPAddress.Any
-            // we can't put 0.0.0.0 in the SDP or the callee will ignore us.
+            // Get the IP address the RTP will be sent from. While we can listen on IPAddress.Any | IPv6Any
+            // we can't put 0.0.0.0 or [::0] in the SDP or the callee will ignore us.
             var lookupResult = SIPDNSManager.ResolveSIPService(callUri, false);
             Log.LogDebug($"DNS lookup result for {callUri}: {lookupResult?.GetSIPEndPoint()}.");
             var dstAddress = lookupResult.GetSIPEndPoint().Address;
             IPAddress localIPAddress = NetServices.GetLocalAddressForRemote(dstAddress);
 
             // Initialise an RTP session to receive the RTP packets from the remote SIP server.
-            var rtpSession = new RTPSession((int)SDPMediaFormatsEnum.PCMU, null, null, true);
+            var rtpSession = new RTPSession((int)SDPMediaFormatsEnum.PCMU, null, null, true, localIPAddress.AddressFamily);
             var offerSDP = rtpSession.GetSDP(localIPAddress);
+
+            // Get the audio input device.
+            WaveInEvent waveInEvent = GetAudioInputDevice();
 
             // Create a client user agent to place a call to a remote SIP server along with event handlers for the different stages of the call.
             var uac = new SIPClientUserAgent(sipTransport);
-            uac.CallTrying += (uac, resp) =>
-            {
-                Log.LogInformation($"{uac.CallDescriptor.To} Trying: {resp.StatusCode} {resp.ReasonPhrase}.");
-            };
+            uac.CallTrying += (uac, resp) => Log.LogInformation($"{uac.CallDescriptor.To} Trying: {resp.StatusCode} {resp.ReasonPhrase}.");
             uac.CallRinging += (uac, resp) => Log.LogInformation($"{uac.CallDescriptor.To} Ringing: {resp.StatusCode} {resp.ReasonPhrase}.");
             uac.CallFailed += (uac, err) =>
             {
@@ -96,6 +101,9 @@ namespace SIPSorcery
                         rtpSession.DestinationEndPoint = SDP.GetSDPRTPEndPoint(resp.Body);
                         Log.LogDebug($"Remote RTP socket {rtpSession.DestinationEndPoint}.");
                     }
+
+                    rtpSession.SetRemoteSDP(SDP.ParseSDPDescription(resp.Body));
+                    waveInEvent.StartRecording();
                 }
                 else
                 {
@@ -120,7 +128,7 @@ namespace SIPSorcery
                 }
             };
 
-            // Wire up the RTP receive session to the audio input device.
+            // Wire up the RTP receive session to the audio output device.
             var (audioOutEvent, audioOutProvider) = GetAudioOutputDevice();
             rtpSession.OnReceivedSampleReady += (sample) =>
             {
@@ -132,8 +140,7 @@ namespace SIPSorcery
                 }
             };
 
-            // Wire up the RTP send session to the audio output device.
-            WaveInEvent waveInEvent = GetAudioInputDevice();
+            // Wire up the RTP send session to the audio input device.
             uint rtpSendTimestamp = 0;
             waveInEvent.DataAvailable += (object sender, WaveInEventArgs args) =>
             {
@@ -151,8 +158,6 @@ namespace SIPSorcery
                     rtpSession.SendAudioFrame(rtpSendTimestamp, sample);
                     rtpSendTimestamp += (uint)(8000 / waveInEvent.BufferMilliseconds);
                 }
-
-                waveInEvent.StartRecording();
             };
 
             // Start the thread that places the call.
@@ -169,6 +174,7 @@ namespace SIPSorcery
                 null);
 
             uac.Call(callDescriptor);
+            uac.ServerTransaction.TransactionTraceMessage += (tx, msg) => Log.LogInformation($"UAC tx trace message. {msg}");
 
             // Ctrl-c will gracefully exit the call at any point.
             Console.CancelKeyPress += delegate (object sender, ConsoleCancelEventArgs e)
@@ -184,7 +190,7 @@ namespace SIPSorcery
 
             waveInEvent?.StopRecording();
             audioOutEvent?.Stop();
-            rtpSession.Close();
+            rtpSession.CloseSession(null);
 
             if (!isCallHungup && uac != null)
             {

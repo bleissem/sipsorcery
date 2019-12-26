@@ -14,6 +14,7 @@ using System.Collections.Generic;
 using System.Text;
 using SIPSorcery.Sys;
 using SIPSorcery.UnitTests;
+using Microsoft.Extensions.Logging;
 using Xunit;
 using Xunit.Abstractions;
 
@@ -24,17 +25,18 @@ namespace SIPSorcery.SIP.UnitTests
     {
         private static string m_CRLF = SIPConstants.CRLF;
 
-        private readonly ITestOutputHelper output;
+        private Microsoft.Extensions.Logging.ILogger logger = null;
 
-        public SIPRequestUnitTest(ITestOutputHelper output)
+        public SIPRequestUnitTest(Xunit.Abstractions.ITestOutputHelper output)
         {
-            this.output = output;
+            logger = SIPSorcery.UnitTests.TestLogHelper.InitTestLogger(output);
         }
 
         [Fact]
         public void ParseXtenINVITEUnitTest()
         {
-            Console.WriteLine("--> " + System.Reflection.MethodBase.GetCurrentMethod().Name);
+            logger.LogDebug("--> " + System.Reflection.MethodBase.GetCurrentMethod().Name);
+            logger.BeginScope(System.Reflection.MethodBase.GetCurrentMethod().Name);
 
             string sipMsg =
                 "INVITE sip:303@sip.blueface.ie SIP/2.0" + m_CRLF +
@@ -67,9 +69,9 @@ namespace SIPSorcery.SIP.UnitTests
 
             if (inviteReq.Body != null)
             {
-                Console.WriteLine("Body Length = " + inviteReq.Body.Length + ".");
+                logger.LogDebug("Body Length = " + inviteReq.Body.Length + ".");
             }
-            Console.WriteLine("Body:\r\n" + inviteReq.Body + ".");
+            logger.LogDebug("Body:\r\n" + inviteReq.Body + ".");
 
             Assert.True(inviteReq.Method == SIPMethodsEnum.INVITE, "The SIP request method was not parsed correctly.");
             //Assert.True(inviteReq.SIPMajorVersion == 2, "The SIP Major version was not parsed correctly.");
@@ -78,13 +80,14 @@ namespace SIPSorcery.SIP.UnitTests
             Assert.True(inviteReq.URI.Host == "sip.blueface.ie", "The SIP request URI Host was not parsed correctly.");
             Assert.True(inviteReq.Body != null && inviteReq.Body.Length == 271, "The SIP content body was not parsed correctly.");
 
-            Console.WriteLine("-----------------------------------------");
+            logger.LogDebug("-----------------------------------------");
         }
 
         [Fact]
         public void MalformedContactHeaderUnitTest()
         {
-            Console.WriteLine("--> " + System.Reflection.MethodBase.GetCurrentMethod().Name);
+            logger.LogDebug("--> " + System.Reflection.MethodBase.GetCurrentMethod().Name);
+            logger.BeginScope(System.Reflection.MethodBase.GetCurrentMethod().Name);
 
             string sipMsg =
             "REGISTER sip:sip.sipsorcery.com SIP/2.0" + m_CRLF +
@@ -107,7 +110,8 @@ namespace SIPSorcery.SIP.UnitTests
         [Fact]
         public void ParseAsteriskACKUnitTest()
         {
-            Console.WriteLine("--> " + System.Reflection.MethodBase.GetCurrentMethod().Name);
+            logger.LogDebug("--> " + System.Reflection.MethodBase.GetCurrentMethod().Name);
+            logger.BeginScope(System.Reflection.MethodBase.GetCurrentMethod().Name);
 
             string sipMsg =
                 "ACK sip:303@213.168.225.133 SIP/2.0" + m_CRLF +
@@ -130,13 +134,14 @@ namespace SIPSorcery.SIP.UnitTests
             Assert.True(ackReq.URI.User == "303", "The SIP request URI was not parsed correctly.");
             Assert.True(ackReq.URI.Host == "213.168.225.133", "The SIP request URI Host was not parsed correctly.");
 
-            Console.WriteLine("-----------------------------------------");
+            logger.LogDebug("-----------------------------------------");
         }
 
         [Fact]
         public void ParseCiscoACKUnitTest()
         {
-            Console.WriteLine("--> " + System.Reflection.MethodBase.GetCurrentMethod().Name);
+            logger.LogDebug("--> " + System.Reflection.MethodBase.GetCurrentMethod().Name);
+            logger.BeginScope(System.Reflection.MethodBase.GetCurrentMethod().Name);
 
             string sipMsg =
                 "ACK sip:303@213.168.225.133:5061 SIP/2.0" + m_CRLF +
@@ -162,13 +167,14 @@ namespace SIPSorcery.SIP.UnitTests
             Assert.True(ackReq.URI.User == "303", "The SIP request URI was not parsed correctly.");
             Assert.True(ackReq.URI.Host == "213.168.225.133:5061", "The SIP request URI Host was not parsed correctly.");
 
-            Console.WriteLine("-----------------------------------------");
+            logger.LogDebug("-----------------------------------------");
         }
 
         [Fact]
         public void ParseXtenByeUnitTest()
         {
-            Console.WriteLine("--> " + System.Reflection.MethodBase.GetCurrentMethod().Name);
+            logger.LogDebug("--> " + System.Reflection.MethodBase.GetCurrentMethod().Name);
+            logger.BeginScope(System.Reflection.MethodBase.GetCurrentMethod().Name);
 
             string sipMsg =
                 "BYE sip:303@213.168.225.133 SIP/2.0" + m_CRLF +
@@ -191,13 +197,14 @@ namespace SIPSorcery.SIP.UnitTests
             //Assert.True(byeReq.SIPMinorVersion == 0, "The SIP Minor version was not parsed correctly.");
             Assert.True(byeReq.URI.User == "303", "The SIP request URI name was not parsed correctly.");
 
-            Console.WriteLine("-----------------------------------------");
+            logger.LogDebug("-----------------------------------------");
         }
 
         [Fact]
         public void ParseAsteriskBYEUnitTest()
         {
-            Console.WriteLine("--> " + System.Reflection.MethodBase.GetCurrentMethod().Name);
+            logger.LogDebug("--> " + System.Reflection.MethodBase.GetCurrentMethod().Name);
+            logger.BeginScope(System.Reflection.MethodBase.GetCurrentMethod().Name);
 
             string sipMsg =
                 "BYE sip:bluesipd@192.168.1.2:5065 SIP/2.0" + m_CRLF +
@@ -220,13 +227,14 @@ namespace SIPSorcery.SIP.UnitTests
             Assert.True(byeReq.URI.User == "bluesipd", "The SIP request URI Name was not parsed correctly.");
             Assert.True(byeReq.URI.Host == "192.168.1.2:5065", "The SIP request URI Host was not parsed correctly.");
 
-            Console.WriteLine("-----------------------------------------");
+            logger.LogDebug("-----------------------------------------");
         }
 
         [Fact]
         public void TopRouteUnitTest()
         {
-            Console.WriteLine("--> " + System.Reflection.MethodBase.GetCurrentMethod().Name);
+            logger.LogDebug("--> " + System.Reflection.MethodBase.GetCurrentMethod().Name);
+            logger.BeginScope(System.Reflection.MethodBase.GetCurrentMethod().Name);
 
             string sipMsg =
                 "BYE sip:bluesipd@192.168.1.2:5065 SIP/2.0" + m_CRLF +
@@ -246,13 +254,14 @@ namespace SIPSorcery.SIP.UnitTests
             SIPRoute topRoute = byeReq.Header.Routes.PopRoute();
             Assert.True(topRoute.Host == "220.240.255.198:64300", "The top route was not parsed correctly, top route IP address was " + topRoute.Host + ".");
 
-            Console.WriteLine("-----------------------------------------");
+            logger.LogDebug("-----------------------------------------");
         }
 
         [Fact]
         public void SubscribeRequestUnitTest()
         {
-            Console.WriteLine("--> " + System.Reflection.MethodBase.GetCurrentMethod().Name);
+            logger.LogDebug("--> " + System.Reflection.MethodBase.GetCurrentMethod().Name);
+            logger.BeginScope(System.Reflection.MethodBase.GetCurrentMethod().Name);
 
             string sipMsg =
                 "SUBSCRIBE sip:0123456@127.0.0.1 SIP/2.0" + m_CRLF +
@@ -274,15 +283,16 @@ namespace SIPSorcery.SIP.UnitTests
             SIPMessageBuffer sipMessageBuffer = SIPMessageBuffer.ParseSIPMessage(Encoding.UTF8.GetBytes(sipMsg), null, null);
             SIPRequest subscribeReq = SIPRequest.ParseSIPRequest(sipMessageBuffer);
 
-            Console.WriteLine(subscribeReq.ToString());
+            logger.LogDebug(subscribeReq.ToString());
 
-            Console.WriteLine("-----------------------------------------");
+            logger.LogDebug("-----------------------------------------");
         }
 
         [Fact]
         public void SpaceInNamesRequestUnitTest()
         {
-            Console.WriteLine("--> " + System.Reflection.MethodBase.GetCurrentMethod().Name);
+            logger.LogDebug("--> " + System.Reflection.MethodBase.GetCurrentMethod().Name);
+            logger.BeginScope(System.Reflection.MethodBase.GetCurrentMethod().Name);
 
             string sipMsg =
                 "REGISTER sip:Blue Face SIP/2.0" + m_CRLF +
@@ -300,9 +310,9 @@ namespace SIPSorcery.SIP.UnitTests
             SIPMessageBuffer sipMessageBuffer = SIPMessageBuffer.ParseSIPMessage(Encoding.UTF8.GetBytes(sipMsg), null, null);
             SIPRequest registerReq = SIPRequest.ParseSIPRequest(sipMessageBuffer);
 
-            Console.WriteLine(registerReq.ToString());
+            logger.LogDebug(registerReq.ToString());
 
-            Console.WriteLine("-----------------------------------------");
+            logger.LogDebug("-----------------------------------------");
         }
 
         /// <summary>
@@ -311,7 +321,8 @@ namespace SIPSorcery.SIP.UnitTests
         [Fact]
         public void DodgyAastraRequestUnitTest()
         {
-            Console.WriteLine("--> " + System.Reflection.MethodBase.GetCurrentMethod().Name);
+            logger.LogDebug("--> " + System.Reflection.MethodBase.GetCurrentMethod().Name);
+            logger.BeginScope(System.Reflection.MethodBase.GetCurrentMethod().Name);
 
             string sipMsg =
                 "REGISTER sip:sip.blueface.ie SIP/2.0" + m_CRLF +
@@ -334,7 +345,8 @@ namespace SIPSorcery.SIP.UnitTests
         [Fact]
         public void NetgearInviteRequestUnitTest()
         {
-            Console.WriteLine("--> " + System.Reflection.MethodBase.GetCurrentMethod().Name);
+            logger.LogDebug("--> " + System.Reflection.MethodBase.GetCurrentMethod().Name);
+            logger.BeginScope(System.Reflection.MethodBase.GetCurrentMethod().Name);
 
             string sipMsg =
                 "INVITE sip:12345@sip.domain.com:5060;TCID-0 SIP/2.0" + m_CRLF +
@@ -371,15 +383,16 @@ namespace SIPSorcery.SIP.UnitTests
             SIPMessageBuffer sipMessageBuffer = SIPMessageBuffer.ParseSIPMessage(Encoding.UTF8.GetBytes(sipMsg), null, null);
             SIPRequest inviteReq = SIPRequest.ParseSIPRequest(sipMessageBuffer);
 
-            Console.WriteLine(inviteReq.ToString());
+            logger.LogDebug(inviteReq.ToString());
 
-            Console.WriteLine("-----------------------------------------");
+            logger.LogDebug("-----------------------------------------");
         }
 
         [Fact]
         public void RTCRegisterRequestUnitTest()
         {
-            Console.WriteLine("--> " + System.Reflection.MethodBase.GetCurrentMethod().Name);
+            logger.LogDebug("--> " + System.Reflection.MethodBase.GetCurrentMethod().Name);
+            logger.BeginScope(System.Reflection.MethodBase.GetCurrentMethod().Name);
 
             string sipMsg =
                 "REGISTER sip:sip.blueface.ie SIP/2.0" + m_CRLF +
@@ -398,13 +411,14 @@ namespace SIPSorcery.SIP.UnitTests
             SIPMessageBuffer sipMessageBuffer = SIPMessageBuffer.ParseSIPMessage(Encoding.UTF8.GetBytes(sipMsg), null, null);
             SIPRequest registerReq = SIPRequest.ParseSIPRequest(sipMessageBuffer);
 
-            Console.WriteLine("-----------------------------------------");
+            logger.LogDebug("-----------------------------------------");
         }
 
         [Fact]
         public void CiscoRegisterRequest()
         {
-            Console.WriteLine("--> " + System.Reflection.MethodBase.GetCurrentMethod().Name);
+            logger.LogDebug("--> " + System.Reflection.MethodBase.GetCurrentMethod().Name);
+            logger.BeginScope(System.Reflection.MethodBase.GetCurrentMethod().Name);
 
             string sipMsg =
                 "REGISTER sip:194.213.29.11 SIP/2.0" + m_CRLF +
@@ -426,7 +440,8 @@ namespace SIPSorcery.SIP.UnitTests
         [Fact]
         public void AuthenticatedRegisterRequestUnitTest()
         {
-            Console.WriteLine("--> " + System.Reflection.MethodBase.GetCurrentMethod().Name);
+            logger.LogDebug("--> " + System.Reflection.MethodBase.GetCurrentMethod().Name);
+            logger.BeginScope(System.Reflection.MethodBase.GetCurrentMethod().Name);
 
             string sipMsg =
                 "REGISTER sip:blueface.ie SIP/2.0" + m_CRLF +
@@ -445,7 +460,7 @@ namespace SIPSorcery.SIP.UnitTests
             SIPMessageBuffer sipMessageBuffer = SIPMessageBuffer.ParseSIPMessage(Encoding.UTF8.GetBytes(sipMsg), null, null);
             SIPRequest registerReq = SIPRequest.ParseSIPRequest(sipMessageBuffer);
 
-            Console.WriteLine(registerReq.ToString());
+            logger.LogDebug(registerReq.ToString());
 
             SIPAuthenticationHeader authHeader = registerReq.Header.AuthenticationHeader;
 
@@ -460,7 +475,8 @@ namespace SIPSorcery.SIP.UnitTests
         [Fact]
         public void MicrosoftMessengerRegisterRequestUnitTest()
         {
-            Console.WriteLine("--> " + System.Reflection.MethodBase.GetCurrentMethod().Name);
+            logger.LogDebug("--> " + System.Reflection.MethodBase.GetCurrentMethod().Name);
+            logger.BeginScope(System.Reflection.MethodBase.GetCurrentMethod().Name);
 
             string sipMsg =
                 "REGISTER sip:aaronmsn SIP/2.0" + m_CRLF +
@@ -479,13 +495,14 @@ namespace SIPSorcery.SIP.UnitTests
             SIPMessageBuffer sipMessageBuffer = SIPMessageBuffer.ParseSIPMessage(Encoding.UTF8.GetBytes(sipMsg), null, null);
             SIPRequest registerReq = SIPRequest.ParseSIPRequest(sipMessageBuffer);
 
-            Console.WriteLine(registerReq.ToString());
+            logger.LogDebug(registerReq.ToString());
         }
 
         [Fact]
         public void CreateBranchIdUnitTest()
         {
-            Console.WriteLine("--> " + System.Reflection.MethodBase.GetCurrentMethod().Name);
+            logger.LogDebug("--> " + System.Reflection.MethodBase.GetCurrentMethod().Name);
+            logger.BeginScope(System.Reflection.MethodBase.GetCurrentMethod().Name);
 
             string sipMsg =
                 "INVITE sip:303@sip.blueface.ie SIP/2.0" + m_CRLF +
@@ -505,20 +522,21 @@ namespace SIPSorcery.SIP.UnitTests
 
             string branchId = CallProperties.CreateBranchId();
 
-            Console.WriteLine("branchid=" + branchId);
+            logger.LogDebug("branchid=" + branchId);
 
             int length = branchId.Length - SIPConstants.SIP_BRANCH_MAGICCOOKIE.Length;
-            Console.WriteLine("length=" + length);
+            logger.LogDebug("length=" + length);
 
             Assert.True(branchId != null, "The branchid was not created correctly.");
 
-            Console.WriteLine("-----------------------------------------");
+            logger.LogDebug("-----------------------------------------");
         }
 
         /*[Test]
         public void LoopDetectUnitTest()
         {
-            Console.WriteLine("--> " + System.Reflection.MethodBase.GetCurrentMethod().Name);
+            logger.LogDebug("--> " + System.Reflection.MethodBase.GetCurrentMethod().Name);
+            logger.BeginScope(System.Reflection.MethodBase.GetCurrentMethod().Name);
                
             string sipMsg = 
                 "INVITE sip:303@sip.blueface.ie SIP/2.0" + m_CRLF +
@@ -544,13 +562,14 @@ namespace SIPSorcery.SIP.UnitTests
 				
             Assert.True(inviteReq.IsLoop("192.168.1.2", 5065, branchId), "The SIP request was not correctly detected as a loop.");
 
-            Console.WriteLine("-----------------------------------------");
+            logger.LogDebug("-----------------------------------------");
         }*/
 
         [Fact]
         public void LooseRouteForProxyUnitTest()
         {
-            Console.WriteLine("--> " + System.Reflection.MethodBase.GetCurrentMethod().Name);
+            logger.LogDebug("--> " + System.Reflection.MethodBase.GetCurrentMethod().Name);
+            logger.BeginScope(System.Reflection.MethodBase.GetCurrentMethod().Name);
 
             string sipMsg =
                 "INVITE sip:303@sip.blueface.ie SIP/2.0" + m_CRLF +
@@ -570,7 +589,8 @@ namespace SIPSorcery.SIP.UnitTests
             SIPRequest inviteReq = SIPRequest.ParseSIPRequest(sipMessageBuffer);
 
             MockSIPChannel mockSIPChannel = new MockSIPChannel(IPSocket.ParseSocketString("82.195.148.216:5062"));
-            SIPTransport mockSIPTransport = new SIPTransport(MockSIPDNSManager.Resolve, null, mockSIPChannel, false);
+            SIPTransport mockSIPTransport = new SIPTransport(true, MockSIPDNSManager.Resolve);
+            mockSIPTransport.AddSIPChannel(mockSIPChannel);
 
             mockSIPTransport.PreProcessRouteInfo(inviteReq);
 
@@ -582,7 +602,8 @@ namespace SIPSorcery.SIP.UnitTests
         [Fact]
         public void LooseRouteForProxyMultipleContactsUnitTest()
         {
-            Console.WriteLine("--> " + System.Reflection.MethodBase.GetCurrentMethod().Name);
+            logger.LogDebug("--> " + System.Reflection.MethodBase.GetCurrentMethod().Name);
+            logger.BeginScope(System.Reflection.MethodBase.GetCurrentMethod().Name);
 
             string sipMsg =
                 "INVITE sip:303@sip.blueface.ie SIP/2.0" + m_CRLF +
@@ -601,7 +622,7 @@ namespace SIPSorcery.SIP.UnitTests
             SIPMessageBuffer sipMessageBuffer = SIPMessageBuffer.ParseSIPMessage(Encoding.UTF8.GetBytes(sipMsg), null, null);
             SIPRequest inviteReq = SIPRequest.ParseSIPRequest(sipMessageBuffer);
 
-            SIPTransport mockSIPTransport = new SIPTransport(MockSIPDNSManager.Resolve, null, false);
+            SIPTransport mockSIPTransport = new SIPTransport(true, MockSIPDNSManager.Resolve);
             mockSIPTransport.AddSIPChannel(new MockSIPChannel(IPSocket.ParseSocketString("82.195.148.216:5061")));
             mockSIPTransport.AddSIPChannel(new MockSIPChannel(IPSocket.ParseSocketString("82.195.148.216:5062")));
 
@@ -615,7 +636,8 @@ namespace SIPSorcery.SIP.UnitTests
         [Fact]
         public void LooseRouteNotForProxyUnitTest()
         {
-            Console.WriteLine("--> " + System.Reflection.MethodBase.GetCurrentMethod().Name);
+            logger.LogDebug("--> " + System.Reflection.MethodBase.GetCurrentMethod().Name);
+            logger.BeginScope(System.Reflection.MethodBase.GetCurrentMethod().Name);
 
             string sipMsg =
                 "INVITE sip:303@sip.blueface.ie SIP/2.0" + m_CRLF +
@@ -634,7 +656,7 @@ namespace SIPSorcery.SIP.UnitTests
             SIPMessageBuffer sipMessageBuffer = SIPMessageBuffer.ParseSIPMessage(Encoding.UTF8.GetBytes(sipMsg), null, null);
             SIPRequest inviteReq = SIPRequest.ParseSIPRequest(sipMessageBuffer);
 
-            SIPTransport mockSIPTransport = new SIPTransport(MockSIPDNSManager.Resolve, null, false);
+            SIPTransport mockSIPTransport = new SIPTransport(true, MockSIPDNSManager.Resolve);
             mockSIPTransport.AddSIPChannel(new MockSIPChannel(IPSocket.ParseSocketString("10.10.10.10:5060")));
 
             mockSIPTransport.PreProcessRouteInfo(inviteReq);
@@ -646,7 +668,8 @@ namespace SIPSorcery.SIP.UnitTests
         [Fact]
         public void StrictRoutePriorToProxyUnitTest()
         {
-            Console.WriteLine("--> " + System.Reflection.MethodBase.GetCurrentMethod().Name);
+            logger.LogDebug("--> " + System.Reflection.MethodBase.GetCurrentMethod().Name);
+            logger.BeginScope(System.Reflection.MethodBase.GetCurrentMethod().Name);
 
             string sipMsg =
                 "INVITE sip:82.195.148.216:5062;lr SIP/2.0" + m_CRLF +
@@ -665,14 +688,14 @@ namespace SIPSorcery.SIP.UnitTests
             SIPMessageBuffer sipMessageBuffer = SIPMessageBuffer.ParseSIPMessage(Encoding.UTF8.GetBytes(sipMsg), null, null);
             SIPRequest inviteReq = SIPRequest.ParseSIPRequest(sipMessageBuffer);
 
-            SIPTransport mockSIPTransport = new SIPTransport(MockSIPDNSManager.Resolve, null, false);
+            SIPTransport mockSIPTransport = new SIPTransport(true, MockSIPDNSManager.Resolve);
             mockSIPTransport.AddSIPChannel(new MockSIPChannel(IPSocket.ParseSocketString("82.195.148.216:5062")));
 
             mockSIPTransport.PreProcessRouteInfo(inviteReq);
 
-            Console.WriteLine(inviteReq.ToString());
-            Console.WriteLine("Next Route=" + inviteReq.Header.Routes.TopRoute.ToString());
-            Console.WriteLine("Request URI=" + inviteReq.URI.ToString());
+            logger.LogDebug(inviteReq.ToString());
+            logger.LogDebug("Next Route=" + inviteReq.Header.Routes.TopRoute.ToString());
+            logger.LogDebug("Request URI=" + inviteReq.URI.ToString());
 
             Assert.True(inviteReq.Header.Routes.TopRoute.ToString() == "<sip:89.100.92.186:45270;lr>", "Top route was not correct.");
             Assert.True(inviteReq.URI.ToString() == "sip:303@sip.blueface.ie", "The request URI was incorrectly adjusted.");
@@ -682,7 +705,8 @@ namespace SIPSorcery.SIP.UnitTests
         [Fact]
         public void StrictRouteAfterProxyUnitTest()
         {
-            Console.WriteLine("--> " + System.Reflection.MethodBase.GetCurrentMethod().Name);
+            logger.LogDebug("--> " + System.Reflection.MethodBase.GetCurrentMethod().Name);
+            logger.BeginScope(System.Reflection.MethodBase.GetCurrentMethod().Name);
 
             string sipMsg =
                 "INVITE sip:303@sip.blueface.ie SIP/2.0" + m_CRLF +
@@ -701,13 +725,13 @@ namespace SIPSorcery.SIP.UnitTests
             SIPMessageBuffer sipMessageBuffer = SIPMessageBuffer.ParseSIPMessage(Encoding.UTF8.GetBytes(sipMsg), null, null);
             SIPRequest inviteReq = SIPRequest.ParseSIPRequest(sipMessageBuffer);
 
-            SIPTransport mockSIPTransport = new SIPTransport(MockSIPDNSManager.Resolve, null, false);
+            SIPTransport mockSIPTransport = new SIPTransport(true, MockSIPDNSManager.Resolve);
             mockSIPTransport.AddSIPChannel(new MockSIPChannel(IPSocket.ParseSocketString("82.195.148.216:5062")));
 
             mockSIPTransport.PreProcessRouteInfo(inviteReq);
 
-            Console.WriteLine("Next Route=" + inviteReq.Header.Routes.TopRoute.ToString());
-            Console.WriteLine("Request URI=" + inviteReq.URI.ToString());
+            logger.LogDebug("Next Route=" + inviteReq.Header.Routes.TopRoute.ToString());
+            logger.LogDebug("Request URI=" + inviteReq.URI.ToString());
 
             Assert.True(inviteReq.Header.Routes.TopRoute.ToString() == "<sip:89.100.92.186:45270;lr>", "Top route was not correctly recognised.");
             Assert.True(inviteReq.Header.Routes.BottomRoute.ToString() == "<sip:303@sip.blueface.ie>", "Bottom route was not correctly placed.");
@@ -719,7 +743,8 @@ namespace SIPSorcery.SIP.UnitTests
         //[Ignore()]
         public void LooseRouteForProxyHostnameUnitTest()
         {
-            output.WriteLine("--> " + System.Reflection.MethodBase.GetCurrentMethod().Name);
+            logger.LogDebug("--> " + System.Reflection.MethodBase.GetCurrentMethod().Name);
+            logger.BeginScope(System.Reflection.MethodBase.GetCurrentMethod().Name);
 
             string sipMsg =
                 "INVITE sip:303@sip.blueface.ie SIP/2.0" + m_CRLF +
@@ -738,7 +763,7 @@ namespace SIPSorcery.SIP.UnitTests
             SIPMessageBuffer sipMessageBuffer = SIPMessageBuffer.ParseSIPMessage(Encoding.UTF8.GetBytes(sipMsg), null, null);
             SIPRequest inviteReq = SIPRequest.ParseSIPRequest(sipMessageBuffer);
 
-            SIPTransport mockSIPTransport = new SIPTransport(MockSIPDNSManager.Resolve, null, false);
+            SIPTransport mockSIPTransport = new SIPTransport(true, MockSIPDNSManager.Resolve);
             mockSIPTransport.AddSIPChannel(new MockSIPChannel(IPSocket.ParseSocketString("194.213.29.100:5060")));
 
             mockSIPTransport.PreProcessRouteInfo(inviteReq);
@@ -751,7 +776,8 @@ namespace SIPSorcery.SIP.UnitTests
         [Fact]
         public void SpuriousStartCharsInResponseUnitTest()
         {
-            Console.WriteLine("--> " + System.Reflection.MethodBase.GetCurrentMethod().Name);
+            logger.LogDebug("--> " + System.Reflection.MethodBase.GetCurrentMethod().Name);
+            logger.BeginScope(System.Reflection.MethodBase.GetCurrentMethod().Name);
 
             // This is an example of a malformed response recieved in the wild. It matches the bnf format for a request,
             // if the format of the SIP URI is not taken into account.
@@ -771,13 +797,14 @@ namespace SIPSorcery.SIP.UnitTests
             SIPMessageBuffer sipMessageBuffer = SIPMessageBuffer.ParseSIPMessage(Encoding.UTF8.GetBytes(sipMsg), null, null);
             Assert.Throws<SIPValidationException>(() => SIPRequest.ParseSIPRequest(sipMessageBuffer));
 
-            Console.WriteLine("-----------------------------------------");
+            logger.LogDebug("-----------------------------------------");
         }
 
         [Fact]
         public void RegisterZeroExpiryUnitTest()
         {
-            Console.WriteLine("--> " + System.Reflection.MethodBase.GetCurrentMethod().Name);
+            logger.LogDebug("--> " + System.Reflection.MethodBase.GetCurrentMethod().Name);
+            logger.BeginScope(System.Reflection.MethodBase.GetCurrentMethod().Name);
 
             string sipMsg =
                 "REGISTER sip:213.200.94.181 SIP/2.0" + m_CRLF +
@@ -794,15 +821,16 @@ namespace SIPSorcery.SIP.UnitTests
             SIPMessageBuffer sipMessageBuffer = SIPMessageBuffer.ParseSIPMessage(Encoding.UTF8.GetBytes(sipMsg), null, null);
             SIPRequest registerReq = SIPRequest.ParseSIPRequest(sipMessageBuffer);
 
-            Console.WriteLine(registerReq.ToString());
+            logger.LogDebug(registerReq.ToString());
 
-            Console.WriteLine("-----------------------------------------");
+            logger.LogDebug("-----------------------------------------");
         }
 
         [Fact]
         public void AvayaInviteUnitTest()
         {
-            Console.WriteLine("--> " + System.Reflection.MethodBase.GetCurrentMethod().Name);
+            logger.LogDebug("--> " + System.Reflection.MethodBase.GetCurrentMethod().Name);
+            logger.BeginScope(System.Reflection.MethodBase.GetCurrentMethod().Name);
 
             string sipMsg =
                 "INVITE sip:194.213.29.100:5060 SIP/2.0" + m_CRLF +
@@ -846,23 +874,24 @@ namespace SIPSorcery.SIP.UnitTests
             SIPMessageBuffer sipMessageBuffer = SIPMessageBuffer.ParseSIPMessage(Encoding.UTF8.GetBytes(sipMsg), null, null);
             SIPRequest inviteReq = SIPRequest.ParseSIPRequest(sipMessageBuffer);
 
-            SIPTransport mockSIPTransport = new SIPTransport(MockSIPDNSManager.Resolve, null, false);
+            SIPTransport mockSIPTransport = new SIPTransport(true, MockSIPDNSManager.Resolve);
             mockSIPTransport.AddSIPChannel(new MockSIPChannel(IPSocket.ParseSocketString("194.213.29.100:5060")));
 
             mockSIPTransport.PreProcessRouteInfo(inviteReq);
 
-            Console.WriteLine(inviteReq.ToString());
+            logger.LogDebug(inviteReq.ToString());
 
             Assert.True(inviteReq.URI.ToString() == "sip:8219522@sip.194.213.29.100", "The request URI was not updated to the strict route.");
             Assert.True(inviteReq.Header.Routes.TopRoute.URI.ToString() == "sip:194.213.29.100:5060", "The route set was not correctly updated.");
 
-            Console.WriteLine("-----------------------------------------");
+            logger.LogDebug("-----------------------------------------");
         }
 
         [Fact]
         public void LocalphoneInviteUnitTest()
         {
-            Console.WriteLine("--> " + System.Reflection.MethodBase.GetCurrentMethod().Name);
+            logger.LogDebug("--> " + System.Reflection.MethodBase.GetCurrentMethod().Name);
+            logger.BeginScope(System.Reflection.MethodBase.GetCurrentMethod().Name);
 
             string sipMsg =
                 "INVITE sip:shebeen@sip.mysipswitch.com;switchtag=134308 SIP/2.0" + m_CRLF +
@@ -894,15 +923,16 @@ namespace SIPSorcery.SIP.UnitTests
             SIPMessageBuffer sipMessageBuffer = SIPMessageBuffer.ParseSIPMessage(Encoding.UTF8.GetBytes(sipMsg), null, null);
             SIPRequest inviteReq = SIPRequest.ParseSIPRequest(sipMessageBuffer);
 
-            Console.WriteLine(inviteReq.ToString());
+            logger.LogDebug(inviteReq.ToString());
 
-            Console.WriteLine("-----------------------------------------");
+            logger.LogDebug("-----------------------------------------");
         }
 
         [Fact]
         public void MultipleRouteHeadersUnitTest()
         {
-            Console.WriteLine("--> " + System.Reflection.MethodBase.GetCurrentMethod().Name);
+            logger.LogDebug("--> " + System.Reflection.MethodBase.GetCurrentMethod().Name);
+            logger.BeginScope(System.Reflection.MethodBase.GetCurrentMethod().Name);
 
             string sipMsg =
                 "BYE sip:bluesipd@192.168.1.2:5065 SIP/2.0" + m_CRLF +
@@ -937,13 +967,14 @@ namespace SIPSorcery.SIP.UnitTests
             nextRoute = byeReq.Header.Routes.PopRoute();
             Assert.True(nextRoute.Host == "90.91.82.12", "The seventh route was incorrect.");
 
-            Console.WriteLine("-----------------------------------------");
+            logger.LogDebug("-----------------------------------------");
         }
 
         [Fact]
         public void SinologicInvalidInviteUnitTest()
         {
-            Console.WriteLine("--> " + System.Reflection.MethodBase.GetCurrentMethod().Name);
+            logger.LogDebug("--> " + System.Reflection.MethodBase.GetCurrentMethod().Name);
+            logger.BeginScope(System.Reflection.MethodBase.GetCurrentMethod().Name);
 
             string sipMsg =
                 "INVITE sip:0447507533@69.59.142.213 SIP/2.0" + m_CRLF +
@@ -964,13 +995,14 @@ namespace SIPSorcery.SIP.UnitTests
             SIPMessageBuffer sipMessageBuffer = SIPMessageBuffer.ParseSIPMessage(Encoding.UTF8.GetBytes(sipMsg), null, null);
             SIPRequest inviteReq = SIPRequest.ParseSIPRequest(sipMessageBuffer);
 
-            Console.WriteLine(inviteReq.ToString());
+            logger.LogDebug(inviteReq.ToString());
         }
 
         [Fact]
         public void ParseACKWithDomainNameInViaTest()
         {
-            Console.WriteLine("--> " + System.Reflection.MethodBase.GetCurrentMethod().Name);
+            logger.LogDebug("--> " + System.Reflection.MethodBase.GetCurrentMethod().Name);
+            logger.BeginScope(System.Reflection.MethodBase.GetCurrentMethod().Name);
 
             string sipMsg =
                 "ACK sip:67.222.131.147 SIP/2.0" + m_CRLF +
@@ -987,9 +1019,9 @@ namespace SIPSorcery.SIP.UnitTests
             SIPMessageBuffer sipMessageBuffer = SIPMessageBuffer.ParseSIPMessage(Encoding.UTF8.GetBytes(sipMsg), null, null);
             SIPRequest ackReq = SIPRequest.ParseSIPRequest(sipMessageBuffer);
 
-            Console.WriteLine(ackReq.ToString());
+            logger.LogDebug(ackReq.ToString());
 
-            Console.WriteLine("-----------------------------------------");
+            logger.LogDebug("-----------------------------------------");
         }
 
         /// <summary>
@@ -998,27 +1030,28 @@ namespace SIPSorcery.SIP.UnitTests
         [Fact]
         public void ToStringSerialisationTest()
         {
-            output.WriteLine(System.Reflection.MethodBase.GetCurrentMethod().Name);
+            logger.LogDebug("--> " + System.Reflection.MethodBase.GetCurrentMethod().Name);
+            logger.BeginScope(System.Reflection.MethodBase.GetCurrentMethod().Name);
 
             SIPURI uri = new SIPURI("dummy", "dummy", null, SIPSchemesEnum.sip, SIPProtocolsEnum.udp);
             SIPRequest registerRequest = SIPRequest.GetRequest(SIPMethodsEnum.REGISTER, uri);
             registerRequest.Header.Vias.TopViaHeader.Branch = "z9hG4bKb4313133e5fe42da87034c2b22ac2aab";
             registerRequest.Header.From.FromTag = "OLBDXPNBTJ";
             registerRequest.Header.CallId = "2b79ac74010c494aa1eaaacb9819d77d";
-            
-            output.WriteLine(registerRequest.ToString());
 
-            string expectedSerialisation = @"REGISTER sip:dummy@dummy SIP/2.0
-Via: SIP/2.0/UDP 0.0.0.0;branch=z9hG4bKb4313133e5fe42da87034c2b22ac2aab;rport
-To: <sip:dummy@dummy>
-From: <sip:0.0.0.0:0>;tag=OLBDXPNBTJ
-Call-ID: 2b79ac74010c494aa1eaaacb9819d77d
-CSeq: 1 REGISTER
-Max-Forwards: 70
-Allow: ACK, BYE, CANCEL, INFO, INVITE, NOTIFY, OPTIONS, PRACK, REFER, REGISTER, SUBSCRIBE
-Content-Length: 0
+            logger.LogDebug(registerRequest.ToString());
 
-";
+            string expectedSerialisation = "REGISTER sip:dummy@dummy SIP/2.0" + m_CRLF +
+"Via: SIP/2.0/UDP 0.0.0.0;branch=z9hG4bKb4313133e5fe42da87034c2b22ac2aab;rport" + m_CRLF +
+"To: <sip:dummy@dummy>" + m_CRLF +
+"From: <sip:0.0.0.0:0>;tag=OLBDXPNBTJ" + m_CRLF +
+"Call-ID: 2b79ac74010c494aa1eaaacb9819d77d" + m_CRLF +
+"CSeq: 1 REGISTER" + m_CRLF +
+"Max-Forwards: 70" + m_CRLF +
+"Allow: ACK, BYE, CANCEL, INFO, INVITE, NOTIFY, OPTIONS, PRACK, REFER, REGISTER, SUBSCRIBE" + m_CRLF +
+"Content-Length: 0" + m_CRLF +
+"" + m_CRLF +
+"";
             Assert.Equal(expectedSerialisation, registerRequest.ToString());
         }
 
@@ -1028,7 +1061,8 @@ Content-Length: 0
         [Fact]
         public void CopyToStringSerialisationTest()
         {
-            output.WriteLine(System.Reflection.MethodBase.GetCurrentMethod().Name);
+            logger.LogDebug("--> " + System.Reflection.MethodBase.GetCurrentMethod().Name);
+            logger.BeginScope(System.Reflection.MethodBase.GetCurrentMethod().Name);
 
             SIPURI uri = new SIPURI("dummy", "dummy", null, SIPSchemesEnum.sip, SIPProtocolsEnum.udp);
             SIPRequest registerRequest = SIPRequest.GetRequest(SIPMethodsEnum.REGISTER, uri);
@@ -1038,19 +1072,19 @@ Content-Length: 0
 
             SIPRequest copy = registerRequest.Copy();
 
-            output.WriteLine(copy.ToString());
+            logger.LogDebug(copy.ToString());
 
-            string expectedSerialisation = @"REGISTER sip:dummy@dummy SIP/2.0
-Via: SIP/2.0/UDP 0.0.0.0;branch=z9hG4bKb4313133e5fe42da87034c2b22ac2aab;rport
-To: <sip:dummy@dummy>
-From: <sip:0.0.0.0:0>;tag=OLBDXPNBTJ
-Call-ID: 2b79ac74010c494aa1eaaacb9819d77d
-CSeq: 1 REGISTER
-Max-Forwards: 70
-Allow: ACK, BYE, CANCEL, INFO, INVITE, NOTIFY, OPTIONS, PRACK, REFER, REGISTER, SUBSCRIBE
-Content-Length: 0
-
-";
+            string expectedSerialisation = "REGISTER sip:dummy@dummy SIP/2.0" + m_CRLF +
+"Via: SIP/2.0/UDP 0.0.0.0;branch=z9hG4bKb4313133e5fe42da87034c2b22ac2aab;rport" + m_CRLF +
+"To: <sip:dummy@dummy>" + m_CRLF +
+"From: <sip:0.0.0.0:0>;tag=OLBDXPNBTJ" + m_CRLF +
+"Call-ID: 2b79ac74010c494aa1eaaacb9819d77d" + m_CRLF +
+"CSeq: 1 REGISTER" + m_CRLF +
+"Max-Forwards: 70" + m_CRLF +
+"Allow: ACK, BYE, CANCEL, INFO, INVITE, NOTIFY, OPTIONS, PRACK, REFER, REGISTER, SUBSCRIBE" + m_CRLF +
+"Content-Length: 0" + m_CRLF +
+"" + m_CRLF +
+"";
             Assert.Equal(expectedSerialisation, copy.ToString());
         }
 
@@ -1060,34 +1094,35 @@ Content-Length: 0
         [Fact]
         public void ParsedToStringSerialisationTest()
         {
-            output.WriteLine(System.Reflection.MethodBase.GetCurrentMethod().Name);
+            logger.LogDebug("--> " + System.Reflection.MethodBase.GetCurrentMethod().Name);
+            logger.BeginScope(System.Reflection.MethodBase.GetCurrentMethod().Name);
 
-            string sipRequestStr = @"REGISTER sip:dummy@dummy SIP/2.0
-Via: SIP/2.0/UDP 0.0.0.0;branch=z9hG4bKb4313133e5fe42da87034c2b22ac2aab;rport
-To: <sip:dummy@dummy>
-From: <sip:0.0.0.0:0>;tag=OLBDXPNBTJ
-Call-ID: 2b79ac74010c494aa1eaaacb9819d77d
-CSeq: 1 REGISTER
-Max-Forwards: 70
-Allow: ACK, BYE, CANCEL, INFO, INVITE, NOTIFY, OPTIONS, PRACK, REFER, REGISTER, SUBSCRIBE
-Content-Length: 0
-
-";
+            string sipRequestStr = "REGISTER sip:dummy@dummy SIP/2.0" + m_CRLF +
+"Via: SIP/2.0/UDP 0.0.0.0;branch=z9hG4bKb4313133e5fe42da87034c2b22ac2aab;rport" + m_CRLF +
+"To: <sip:dummy@dummy>" + m_CRLF +
+"From: <sip:0.0.0.0:0>;tag=OLBDXPNBTJ" + m_CRLF +
+"Call-ID: 2b79ac74010c494aa1eaaacb9819d77d" + m_CRLF +
+"CSeq: 1 REGISTER" + m_CRLF +
+"Max-Forwards: 70" + m_CRLF +
+"Allow: ACK, BYE, CANCEL, INFO, INVITE, NOTIFY, OPTIONS, PRACK, REFER, REGISTER, SUBSCRIBE" + m_CRLF +
+"Content-Length: 0" + m_CRLF +
+"" + m_CRLF +
+"";
             SIPRequest registerRequest = SIPRequest.ParseSIPRequest(sipRequestStr);
 
-            output.WriteLine(registerRequest.ToString());
+            logger.LogDebug(registerRequest.ToString());
 
-            string expectedSerialisation = @"REGISTER sip:dummy@dummy SIP/2.0
-Via: SIP/2.0/UDP 0.0.0.0;branch=z9hG4bKb4313133e5fe42da87034c2b22ac2aab;rport
-To: <sip:dummy@dummy>
-From: <sip:0.0.0.0:0>;tag=OLBDXPNBTJ
-Call-ID: 2b79ac74010c494aa1eaaacb9819d77d
-CSeq: 1 REGISTER
-Max-Forwards: 70
-Allow: ACK, BYE, CANCEL, INFO, INVITE, NOTIFY, OPTIONS, PRACK, REFER, REGISTER, SUBSCRIBE
-Content-Length: 0
-
-";
+            string expectedSerialisation = "REGISTER sip:dummy@dummy SIP/2.0" + m_CRLF +
+"Via: SIP/2.0/UDP 0.0.0.0;branch=z9hG4bKb4313133e5fe42da87034c2b22ac2aab;rport" + m_CRLF +
+"To: <sip:dummy@dummy>" + m_CRLF +
+"From: <sip:0.0.0.0:0>;tag=OLBDXPNBTJ" + m_CRLF +
+"Call-ID: 2b79ac74010c494aa1eaaacb9819d77d" + m_CRLF +
+"CSeq: 1 REGISTER" + m_CRLF +
+"Max-Forwards: 70" + m_CRLF +
+"Allow: ACK, BYE, CANCEL, INFO, INVITE, NOTIFY, OPTIONS, PRACK, REFER, REGISTER, SUBSCRIBE" + m_CRLF +
+"Content-Length: 0" + m_CRLF +
+"" + m_CRLF +
+"";
             Assert.Equal(expectedSerialisation, registerRequest.ToString());
         }
     }

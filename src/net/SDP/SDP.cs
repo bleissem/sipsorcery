@@ -102,6 +102,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Net;
+using System.Net.Sockets;
 using System.Text.RegularExpressions;
 using Microsoft.Extensions.Logging;
 using SIPSorcery.Sys;
@@ -116,6 +117,8 @@ namespace SIPSorcery.Net
         public const string ICE_UFRAG_ATTRIBUTE_PREFIX = "ice-ufrag";
         public const string ICE_PWD_ATTRIBUTE_PREFIX = "ice-pwd";
         public const string ICE_CANDIDATE_ATTRIBUTE_PREFIX = "candidate";
+        public const string ADDRESS_TYPE_IPV4 = "IP4";
+        public const string ADDRESS_TYPE_IPV6 = "IP6";
 
         private static ILogger logger = Log.Logger;
 
@@ -128,11 +131,11 @@ namespace SIPSorcery.Net
         public string SessionId = "-";      // Unique Id for the session.
         public int AnnouncementVersion = 0; // Version number for each announcement, number must be increased for each subsequent SDP modification.
         public string NetworkType = "IN";   // Type of network, IN = Internet.
-        public string AddressType = "IP4";  // Address type, typically IP4 or IP6.
-        public string Address;              // IP Address of the machine that created the session, either FQDN or dotted quad or textual for IPv6.
+        public string AddressType = ADDRESS_TYPE_IPV4;  // Address type, typically IP4 or IP6.
+        public string AddressOrHost;         // IP Address or Host of the machine that created the session, either FQDN or dotted quad or textual for IPv6.
         public string Owner
         {
-            get { return Username + " " + SessionId + " " + AnnouncementVersion + " " + NetworkType + " " + AddressType + " " + Address; }
+            get { return Username + " " + SessionId + " " + AnnouncementVersion + " " + NetworkType + " " + AddressType + " " + AddressOrHost; }
         }
 
         public string SessionName = "-";            // Common name of the session.
@@ -165,9 +168,10 @@ namespace SIPSorcery.Net
         public SDP()
         { }
 
-        public SDP(string address)
+        public SDP(IPAddress address)
         {
-            Address = address;
+            AddressOrHost = address.ToString();
+            AddressType = (address.AddressFamily == AddressFamily.InterNetworkV6) ? ADDRESS_TYPE_IPV6 : ADDRESS_TYPE_IPV4;
         }
 
         public static SDP ParseSDPDescription(string sdpDescription)
@@ -200,7 +204,7 @@ namespace SIPSorcery.Net
                             Int32.TryParse(ownerFields[2], out sdp.AnnouncementVersion);
                             sdp.NetworkType = ownerFields[3];
                             sdp.AddressType = ownerFields[4];
-                            sdp.Address = ownerFields[5];
+                            sdp.AddressOrHost = ownerFields[5];
                         }
                         else if (sdpLineTrimmed.StartsWith("s="))
                         {
@@ -323,6 +327,21 @@ namespace SIPSorcery.Net
 
                             sdp.IceCandidates.Add(IceCandidate.Parse(sdpLineTrimmed.Substring(sdpLineTrimmed.IndexOf(':') + 1)));
                         }
+                        //2018-12-21 rj2: add a=crypto
+                        else if (sdpLineTrimmed.StartsWith(SDPSecurityDescription.CRYPTO_ATTRIBUE_PREFIX))
+                        {
+                            if (activeAnnouncement != null)
+                            {
+                                try
+                                {
+                                    activeAnnouncement.AddCryptoLine(sdpLineTrimmed);
+                                }
+                                catch (FormatException fex)
+                                {
+                                    logger.LogWarning("Error Parsing SDP-Line(a=crypto) " + fex);
+                                }
+                            }
+                        }
                         else if (MediaStreamStatusType.IsMediaStreamStatusAttribute(sdpLine.Trim(), out var mediaStreamStatus))
                         {
                             if (activeAnnouncement != null)
@@ -433,15 +452,12 @@ namespace SIPSorcery.Net
         /// <summary>
         /// A convenience method to get the RTP end point for single audio offer SDP payloads.
         /// </summary>
-        /// <param name="sdpMessage">A string representing the SDP payload.</param>
         /// <returns>The RTP end point for the first media end point.</returns>
-        public static IPEndPoint GetSDPRTPEndPoint(string sdpMessage)
+        public IPEndPoint GetSDPRTPEndPoint()
         {
-            SDP sdp = SDP.ParseSDPDescription(sdpMessage);
-
             // Find first media offer.
-            var sessionConnection = sdp?.Connection;
-            var firstMediaOffer = sdp?.Media.FirstOrDefault();
+            var sessionConnection = Connection;
+            var firstMediaOffer = Media.FirstOrDefault();
 
             if (sessionConnection != null && firstMediaOffer != null)
             {
@@ -451,6 +467,17 @@ namespace SIPSorcery.Net
             {
                 return null;
             }
+        }
+
+        /// <summary>
+        /// A convenience method to get the RTP end point for single audio offer SDP payloads.
+        /// </summary>
+        /// <param name="sdpMessage">A string representing the SDP payload.</param>
+        /// <returns>The RTP end point for the first media end point.</returns>
+        public static IPEndPoint GetSDPRTPEndPoint(string sdpMessage)
+        {
+            return ParseSDPDescription(sdpMessage)
+                .GetSDPRTPEndPoint();
         }
 
         /// <summary>

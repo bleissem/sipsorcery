@@ -10,6 +10,7 @@
 //-----------------------------------------------------------------------------
 
 using System;
+using Microsoft.Extensions.Logging;
 using Xunit;
 
 namespace SIPSorcery.SIP.App.UnitTests
@@ -17,10 +18,18 @@ namespace SIPSorcery.SIP.App.UnitTests
     [Trait("Category", "unit")]
     public class SIPMonitorEventUnitTest
     {
+        private Microsoft.Extensions.Logging.ILogger logger = null;
+
+        public SIPMonitorEventUnitTest(Xunit.Abstractions.ITestOutputHelper output)
+        {
+            logger = SIPSorcery.UnitTests.TestLogHelper.InitTestLogger(output);
+        }
+
         [Fact]
         public void SerializeMeassageOnlyProxyEventHeadersTest()
         {
-            Console.WriteLine("--> " + System.Reflection.MethodBase.GetCurrentMethod().Name);
+            logger.LogDebug("--> " + System.Reflection.MethodBase.GetCurrentMethod().Name);
+            logger.BeginScope(System.Reflection.MethodBase.GetCurrentMethod().Name);
 
             SIPMonitorEvent monitorEvent = new SIPMonitorConsoleEvent(SIPMonitorServerTypesEnum.AppServer, SIPMonitorEventTypesEnum.FullSIPTrace, "Test",
                 null, null, null, null, SIPCallDirection.None);

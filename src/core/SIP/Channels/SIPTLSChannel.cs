@@ -47,7 +47,14 @@ namespace SIPSorcery.SIP
             IsSecure = true;
             m_serverCertificate = serverCertificate;
 
-            logger.LogInformation($"SIP TLS Channel ready for {ListeningEndPoint} and certificate {m_serverCertificate.Subject}.");
+            if (m_serverCertificate != null)
+            {
+                logger.LogInformation($"SIP TLS Channel ready for {ListeningEndPoint} and certificate {m_serverCertificate.Subject}.");
+            }
+            else
+            {
+                logger.LogInformation($"SIP TLS client only channel ready.");
+            }
         }
 
         public SIPTLSChannel(X509Certificate2 serverCertificate, IPAddress listenAddress, int listenPort) :
@@ -159,13 +166,13 @@ namespace SIPSorcery.SIP
         /// </summary>
         /// <param name="sipStreamConn">The stream connection object that holds the SSL stream.</param>
         /// <param name="buffer">The data to send.</param>
-        protected async override void SendOnConnected(SIPStreamConnection sipStreamConn, byte[] buffer)
+        protected override Task SendOnConnected(SIPStreamConnection sipStreamConn, byte[] buffer)
         {
             IPEndPoint dstEndPoint = sipStreamConn.RemoteEndPoint;
 
             try
             {
-                await sipStreamConn.SslStream.WriteAsync(buffer, 0, buffer.Length);
+               return sipStreamConn.SslStream.WriteAsync(buffer, 0, buffer.Length);
             }
             catch (SocketException sockExcp)
             {
@@ -173,6 +180,16 @@ namespace SIPSorcery.SIP
                 OnSIPStreamDisconnected(sipStreamConn, sockExcp.SocketErrorCode);
                 throw;
             }
+        }
+
+        /// <summary>
+        /// Checks whether the specified protocol is supported.
+        /// </summary>
+        /// <param name="protocol">The protocol to check.</param>
+        /// <returns>True if supported, false if not.</returns>
+        public override bool IsProtocolSupported(SIPProtocolsEnum protocol)
+        {
+            return protocol == SIPProtocolsEnum.tls;
         }
 
         /// <summary>

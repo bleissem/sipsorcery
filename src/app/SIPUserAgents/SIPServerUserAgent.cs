@@ -15,6 +15,8 @@
 
 using System;
 using System.Linq;
+using System.Net.Sockets;
+using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
 using SIPSorcery.Net;
 using SIPSorcery.Sys;
@@ -477,48 +479,50 @@ namespace SIPSorcery.SIP.App
         /// needs to originate from this agent.</param>
         public void Hangup(bool clientHungup)
         {
-            m_isHungup = true;
-
-            if (SIPDialogue == null)
+            if (!m_isHungup)
             {
-                return;
-            }
+                m_isHungup = true;
 
-            // Only need to send a BYE request if the client didn't already do so.
-            if (clientHungup == false)
-            {
-                try
+                if (SIPDialogue == null)
                 {
-                    // Cases found where the Contact in the INVITE was to a different protocol than the oringinal request.
-                    var inviteContact = m_uasTransaction.TransactionRequest.Header.Contact.FirstOrDefault();
-                    if (inviteContact == null)
-                    {
-                        logger.LogWarning("The Contact header on the INVITE request was missing, BYE request cannot be generated.");
-                    }
-                    else
-                    {
-                        SIPRequest byeRequest = GetByeRequest();
-                        SIPNonInviteTransaction byeTransaction = new SIPNonInviteTransaction(m_sipTransport, byeRequest, m_outboundProxy);
-                        byeTransaction.NonInviteTransactionFinalResponseReceived += ByeServerFinalResponseReceived;
-                        byeTransaction.SendReliableRequest();
-                    }
+                    return;
                 }
-                catch (Exception excp)
+
+                // Only need to send a BYE request if the client didn't already do so.
+                if (clientHungup == false)
                 {
-                    logger.LogError("Exception SIPServerUserAgent Hangup. " + excp.Message);
-                    throw;
+                    try
+                    {
+                        // Cases found where the Contact in the INVITE was to a different protocol than the oringinal request.
+                        var inviteContact = m_uasTransaction.TransactionRequest.Header.Contact.FirstOrDefault();
+                        if (inviteContact == null)
+                        {
+                            logger.LogWarning("The Contact header on the INVITE request was missing, BYE request cannot be generated.");
+                        }
+                        else
+                        {
+                            SIPRequest byeRequest = GetByeRequest();
+                            SIPNonInviteTransaction byeTransaction = new SIPNonInviteTransaction(m_sipTransport, byeRequest, m_outboundProxy);
+                            byeTransaction.NonInviteTransactionFinalResponseReceived += ByeServerFinalResponseReceived;
+                            byeTransaction.SendRequest();
+                        }
+                    }
+                    catch (Exception excp)
+                    {
+                        logger.LogError("Exception SIPServerUserAgent Hangup. " + excp.Message);
+                        throw;
+                    }
                 }
             }
         }
 
-        private void ByeServerFinalResponseReceived(SIPEndPoint localSIPEndPoint, SIPEndPoint remoteEndPoint, SIPTransaction sipTransaction, SIPResponse sipResponse)
+        private Task<SocketError> ByeServerFinalResponseReceived(SIPEndPoint localSIPEndPoint, SIPEndPoint remoteEndPoint, SIPTransaction sipTransaction, SIPResponse sipResponse)
         {
             try
             {
                 Log_External(new SIPMonitorConsoleEvent(SIPMonitorServerTypesEnum.UserAgentServer, SIPMonitorEventTypesEnum.DialPlan, "Response " + sipResponse.StatusCode + " " + sipResponse.ReasonPhrase + " for " + sipTransaction.TransactionRequest.URI.ToString() + ".", Owner));
 
                 SIPNonInviteTransaction byeTransaction = sipTransaction as SIPNonInviteTransaction;
-                byeTransaction.NonInviteTransactionFinalResponseReceived -= ByeServerFinalResponseReceived;
 
                 if ((sipResponse.Status == SIPResponseStatusCodesEnum.ProxyAuthenticationRequired || sipResponse.Status == SIPResponseStatusCodesEnum.Unauthorised) && SIPAccount != null)
                 {
@@ -534,13 +538,16 @@ namespace SIPSorcery.SIP.App
                     authByeRequest.Header.Vias.TopViaHeader.Branch = CallProperties.CreateBranchId();
                     authByeRequest.Header.CSeq = authByeRequest.Header.CSeq + 1;
 
-                    SIPNonInviteTransaction bTransaction = new SIPNonInviteTransaction(m_sipTransport, authByeRequest, null);
-                    bTransaction.SendReliableRequest();
+                    SIPNonInviteTransaction authByeTransaction = new SIPNonInviteTransaction(m_sipTransport, authByeRequest, null);
+                    authByeTransaction.SendRequest();
                 }
+
+                return Task.FromResult(SocketError.Success);
             }
             catch (Exception excp)
             {
                 Log_External(new SIPMonitorConsoleEvent(SIPMonitorServerTypesEnum.UserAgentClient, SIPMonitorEventTypesEnum.Error, "Exception ByServerFinalResponseReceived. " + excp.Message, Owner));
+                return Task.FromResult(SocketError.Fault);
             }
         }
 

@@ -16,6 +16,7 @@
 
 using System;
 using System.Net;
+using System.Net.Sockets;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
@@ -24,7 +25,6 @@ using Serilog;
 using SIPSorcery.Net;
 using SIPSorcery.SIP;
 using SIPSorcery.SIP.App;
-using SIPSorcery.Sys;
 
 namespace SIPSorcery
 {
@@ -58,10 +58,13 @@ namespace SIPSorcery
             var sipTransport = new SIPTransport();
             sipTransport.AddSIPChannel(new SIPUDPChannel(new IPEndPoint(IPAddress.Any, SIP_LISTEN_PORT)));
 
-            EnableTraceLogs(sipTransport);
+            //EnableTraceLogs(sipTransport);
 
-            // Initialise an RTP session to receive the RTP packets from the remote SIP server.
-            var rtpSession = new RTPSession((int)SDPMediaFormatsEnum.PCMU, null, null, true);
+            // Get the default speaker.
+            var (audioOutEvent, audioOutProvider) = GetAudioOutputDevice();
+            WaveInEvent waveInEvent = GetAudioInputDevice();
+
+            RTPMediaSession RtpMediaSession = null;
 
             // Create a client/server user agent to place a call to a remote SIP server along with event handlers for the different stages of the call.
             var userAgent = new SIPUserAgent(sipTransport, null);
@@ -79,17 +82,13 @@ namespace SIPSorcery
                 if (resp.Status == SIPResponseStatusCodesEnum.Ok)
                 {
                     Log.LogInformation($"{uac.CallDescriptor.To} Answered: {resp.StatusCode} {resp.ReasonPhrase}.");
-
-                    // Only set the remote RTP end point if there hasn't already been a packet received on it.
-                    if (rtpSession.DestinationEndPoint == null)
-                    {
-                        rtpSession.DestinationEndPoint = SDP.GetSDPRTPEndPoint(resp.Body);
-                        Log.LogDebug($"Remote RTP socket {rtpSession.DestinationEndPoint}.");
-                    }
+                    PlayRemoteMedia(RtpMediaSession, audioOutProvider);
                 }
                 else
                 {
                     Log.LogWarning($"{uac.CallDescriptor.To} Answered: {resp.StatusCode} {resp.ReasonPhrase}.");
+                    hasCallFailed = true;
+                    exitCts.Cancel();
                 }
             };
             userAgent.OnCallHungup += () =>
@@ -98,23 +97,8 @@ namespace SIPSorcery
                 exitCts.Cancel();
             };
             userAgent.ServerCallCancelled += (uas) => Log.LogInformation("Incoming call cancelled by caller.");
-            userAgent.RemotePutOnHold += () => Log.LogInformation("Remote call party has placed us on hold.");
-            userAgent.RemoteTookOffHold += () => Log.LogInformation("Remote call party took us off hold.");
-            userAgent.OnReinviteRequest += (uasInviteTx) =>
-            {
-                Log.LogDebug("Reinvite request received.");
 
-                // Re-INVITEs can also be changing the RTP end point. We can update this each time.
-                IPEndPoint dstRtpEndPoint = SDP.GetSDPRTPEndPoint(uasInviteTx.TransactionRequest.Body);
-                if(rtpSession.DestinationEndPoint != dstRtpEndPoint)
-                {
-                    Log.LogDebug($"Remote call party RTP end point changed from {rtpSession.DestinationEndPoint} to {dstRtpEndPoint}.");
-                    rtpSession.DestinationEndPoint = dstRtpEndPoint;
-                }
-                uasInviteTx.SendFinalResponse(uasInviteTx.GetOkResponse(SDP.SDP_MIME_CONTENTTYPE, userAgent.Dialogue.SDP));
-            };
-
-            sipTransport.SIPTransportRequestReceived += (locelEndPoint, remoteEndPoint, sipRequest) =>
+            sipTransport.SIPTransportRequestReceived += async (localEndPoint, remoteEndPoint, sipRequest) =>
             {
                 if (sipRequest.Header.From != null &&
                     sipRequest.Header.From.FromTag != null &&
@@ -138,35 +122,26 @@ namespace SIPSorcery
                         Log.LogInformation($"Incoming call request from {remoteEndPoint}: {sipRequest.StatusLine}.");
                         var incomingCall = userAgent.AcceptCall(sipRequest);
 
-                        SDP remoteSDP = SDP.ParseSDPDescription(sipRequest.Body);
-                        IPAddress localIPAddress = NetServices.GetLocalAddressForRemote(IPAddress.Parse(remoteSDP.Connection.ConnectionAddress));
-                        var sdpOffer = rtpSession.GetSDP(localIPAddress);
+                        RtpMediaSession = new RTPMediaSession((int)SDPMediaFormatsEnum.PCMU, AddressFamily.InterNetwork);
+                        RtpMediaSession.RemotePutOnHold += () => Log.LogInformation("Remote call party has placed us on hold.");
+                        RtpMediaSession.RemoteTookOffHold += () => Log.LogInformation("Remote call party took us off hold.");
+                        await userAgent.Answer(incomingCall, RtpMediaSession);
 
-                        userAgent.Answer(incomingCall, sdpOffer);
+                        PlayRemoteMedia(RtpMediaSession, audioOutProvider);
+                        waveInEvent.StartRecording();
+
+                        Log.LogInformation($"Answered incoming call from {sipRequest.Header.From.FriendlyDescription()} at {remoteEndPoint}.");
                     }
                 }
                 else
                 {
                     Log.LogDebug($"SIP {sipRequest.Method} request received but no processing has been set up for it, rejecting.");
                     SIPResponse notAllowedResponse = SIPResponse.GetResponse(sipRequest, SIPResponseStatusCodesEnum.MethodNotAllowed, null);
-                    sipTransport.SendResponse(notAllowedResponse);
-                }
-            };
-
-            // Wire up the RTP receive session to the default speaker.
-            var (audioOutEvent, audioOutProvider) = GetAudioOutputDevice();
-            rtpSession.OnReceivedSampleReady += (sample) =>
-            {
-                for (int index = 0; index < sample.Length; index++)
-                {
-                    short pcm = NAudio.Codecs.MuLawDecoder.MuLawToLinearSample(sample[index]);
-                    byte[] pcmSample = new byte[] { (byte)(pcm & 0xFF), (byte)(pcm >> 8) };
-                    audioOutProvider.AddSamples(pcmSample, 0, 2);
+                    await sipTransport.SendResponseAsync(notAllowedResponse);
                 }
             };
 
             // Wire up the RTP send session to the audio output device.
-            WaveInEvent waveInEvent = GetAudioInputDevice();
             uint rtpSendTimestamp = 0;
             waveInEvent.DataAvailable += (object sender, WaveInEventArgs args) =>
             {
@@ -179,13 +154,11 @@ namespace SIPSorcery
                     sample[sampleIndex++] = ulawByte;
                 }
 
-                if (rtpSession.DestinationEndPoint != null)
+                if (RtpMediaSession != null)
                 {
-                    rtpSession.SendAudioFrame(rtpSendTimestamp, sample);
+                    RtpMediaSession.SendAudioFrame(rtpSendTimestamp, sample);
                     rtpSendTimestamp += (uint)(8000 / waveInEvent.BufferMilliseconds);
                 }
-
-                waveInEvent.StartRecording();
             };
 
             // At this point the call has been initiated and everything will be handled in an event handler.
@@ -197,13 +170,16 @@ namespace SIPSorcery
                     {
                         var keyProps = Console.ReadKey();
 
-                        if(keyProps.KeyChar == 'c')
+                        if (keyProps.KeyChar == 'c')
                         {
                             if (!userAgent.IsCallActive)
                             {
-                                SIPURI callUri = SIPURI.ParseSIPURI(DEFAULT_DESTINATION_SIP_URI);
-                                var callDescriptor = GetCallDescriptor(callUri, rtpSession);
-                                userAgent.Call(callDescriptor);
+                                RtpMediaSession = new RTPMediaSession((int)SDPMediaFormatsEnum.PCMU, AddressFamily.InterNetwork);
+                                RtpMediaSession.RemotePutOnHold += () => Log.LogInformation("Remote call party has placed us on hold.");
+                                RtpMediaSession.RemoteTookOffHold += () => Log.LogInformation("Remote call party took us off hold.");
+
+                                var callDescriptor = GetCallDescriptor(DEFAULT_DESTINATION_SIP_URI);
+                                await userAgent.Call(callDescriptor, RtpMediaSession);
                             }
                             else
                             {
@@ -215,15 +191,15 @@ namespace SIPSorcery
                             // Place call on/off hold.
                             if (userAgent.IsCallActive)
                             {
-                                if (userAgent.OnHoldFromLocal)
+                                if (RtpMediaSession.LocalOnHold)
                                 {
                                     Log.LogInformation("Taking the remote call party off hold.");
-                                    userAgent.TakeOffHold();
+                                    RtpMediaSession.TakeOffHold();
                                 }
                                 else
                                 {
                                     Log.LogInformation("Placing the remote call party on hold.");
-                                    userAgent.PutOnHold();
+                                    RtpMediaSession.PutOnHold();
                                 }
                             }
                             else
@@ -231,12 +207,12 @@ namespace SIPSorcery
                                 Log.LogWarning("There is no active call to put on hold.");
                             }
                         }
-                        else if(keyProps.KeyChar == 't')
+                        else if (keyProps.KeyChar == 't')
                         {
                             if (userAgent.IsCallActive)
                             {
                                 var transferURI = SIPURI.ParseSIPURI(TRANSFER_DESTINATION_SIP_URI);
-                                bool result = await userAgent.Transfer(transferURI, TimeSpan.FromSeconds(TRANSFER_TIMEOUT_SECONDS), exitCts.Token);
+                                bool result = await userAgent.BlindTransfer(transferURI, TimeSpan.FromSeconds(TRANSFER_TIMEOUT_SECONDS), exitCts.Token);
                                 if (result)
                                 {
                                     // If the transfer was accepted the original call will already have been hungup.
@@ -281,7 +257,7 @@ namespace SIPSorcery
 
             Log.LogInformation("Exiting...");
 
-            rtpSession?.Close();
+            RtpMediaSession?.Close();
             waveInEvent?.StopRecording();
             audioOutEvent?.Stop();
 
@@ -320,30 +296,45 @@ namespace SIPSorcery
         /// <param name="callUri">The URI to place the call to.</param>
         /// <param name="rtpSession">The RTP session that will be handling the RTP/RTCP packets for the call.</param>
         /// <returns>A call descriptor.</returns>
-        private static SIPCallDescriptor GetCallDescriptor(SIPURI callUri, RTPSession rtpSession)
+        private static SIPCallDescriptor GetCallDescriptor(string callUri)
         {
-            var lookupResult = SIPDNSManager.ResolveSIPService(callUri, false);
-            Log.LogDebug($"DNS lookup result for {callUri}: {lookupResult?.GetSIPEndPoint()}.");
-            var dstAddress = lookupResult.GetSIPEndPoint().Address;
-
-            IPAddress localIPAddress = NetServices.GetLocalAddressForRemote(dstAddress);
-
-            var sdpOffer = rtpSession.GetSDP(localIPAddress);
-
-            // Start the thread that places the call.
+            // Create a call descriptor to place an outgoing call.
             SIPCallDescriptor callDescriptor = new SIPCallDescriptor(
                 SIP_USERNAME,
                 SIP_PASSWORD,
-                callUri.ToString(),
+                callUri,
                 $"sip:{SIP_USERNAME}@localhost",
-                callUri.CanonicalAddress,
+                callUri,
                 null, null, null,
                 SIPCallDirection.Out,
                 SDP.SDP_MIME_CONTENTTYPE,
-                sdpOffer.ToString(),
+                null,
                 null);
 
             return callDescriptor;
+        }
+
+        /// <summary>
+        /// Wires up the active RTP session to the speaker.
+        /// </summary>
+        /// <param name="rtpSession">The active RTP session receiving the remote party's RTP packets.</param>
+        /// <param name="audioOutProvider">The audio buffer for the default system audio output device.</param>
+        private static void PlayRemoteMedia(RTPMediaSession rtpSession, BufferedWaveProvider audioOutProvider)
+        {
+            if (rtpSession == null)
+            {
+                return;
+            }
+
+            rtpSession.OnReceivedSampleReady += (sample) =>
+            {
+                for (int index = 0; index < sample.Length; index++)
+                {
+                    short pcm = NAudio.Codecs.MuLawDecoder.MuLawToLinearSample(sample[index]);
+                    byte[] pcmSample = new byte[] { (byte)(pcm & 0xFF), (byte)(pcm >> 8) };
+                    audioOutProvider.AddSamples(pcmSample, 0, 2);
+                }
+            };
         }
 
         /// <summary>

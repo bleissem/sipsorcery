@@ -21,14 +21,14 @@ namespace SIPSorcery.SoftPhone
 {
     public interface IVoIPClient
     {
-        void Call(MediaManager mediaManager, string destination);
+        Task Call(string destination);
         void Cancel();
-        void Answer(MediaManager mediaManager);
+        Task Answer();
         void Reject();
         void Redirect(string destination);
         void PutOnHold();
         void TakeOffHold();
-        Task<bool> Transfer(string destination);
+        Task<bool> BlindTransfer(string destination);
         void Hangup();
         void Shutdown();
     }

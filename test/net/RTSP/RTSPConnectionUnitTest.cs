@@ -14,6 +14,7 @@
 //-----------------------------------------------------------------------------
 
 using System.Text;
+using Microsoft.Extensions.Logging;
 using Xunit;
 
 namespace SIPSorcery.Net.UnitTests
@@ -21,6 +22,13 @@ namespace SIPSorcery.Net.UnitTests
     [Trait("Category", "unit")]
     public class RTSPConnectionUnitTest
     {
+        private Microsoft.Extensions.Logging.ILogger logger = null;
+
+        public RTSPConnectionUnitTest(Xunit.Abstractions.ITestOutputHelper output)
+        {
+            logger = SIPSorcery.UnitTests.TestLogHelper.InitTestLogger(output);
+        }
+
         /// <summary>
         /// Tests that a receive buffer is correctly identified as containing a complete RTSP message when there is no Content-Length
         /// header.
@@ -28,6 +36,9 @@ namespace SIPSorcery.Net.UnitTests
         [Fact]
         public void RTSPMessageWithNoContentLengthHeaderAvailable()
         {
+            logger.LogDebug("--> " + System.Reflection.MethodBase.GetCurrentMethod().Name);
+            logger.BeginScope(System.Reflection.MethodBase.GetCurrentMethod().Name);
+
             RTSPRequest setupRequest = new RTSPRequest(RTSPMethodsEnum.SETUP, RTSPURL.ParseRTSPURL("rtsp://localhost/sample"));
             byte[] rtspRequestBuffer = Encoding.UTF8.GetBytes(setupRequest.ToString());
 

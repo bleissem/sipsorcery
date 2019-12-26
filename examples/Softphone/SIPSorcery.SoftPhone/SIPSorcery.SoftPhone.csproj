@@ -101,10 +101,12 @@
       <SubType>Designer</SubType>
     </ApplicationDefinition>
     <Compile Include="AppState.cs" />
-    <Compile Include="Media\RTPManager.cs" />
+    <Compile Include="Media\MusicOnHold.cs" />
+    <Compile Include="Media\RTPMediaSessionManager.cs" />
     <Compile Include="Media\VideoSubTypes.cs" />
     <Compile Include="Signalling\IVoIPClient.cs" />
     <Compile Include="Media\MediaManager.cs" />
+    <Compile Include="Signalling\SIPTransportManager.cs" />
     <Compile Include="Signalling\STUNClient.cs" />
     <Compile Include="UIHelper.cs" />
     <Page Include="Softphone.xaml">
@@ -146,6 +148,9 @@
     <None Include="App.config">
       <SubType>Designer</SubType>
     </None>
+    <None Include="content\Macroform_-_Simplicity.ulaw">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </None>
     <None Include="Properties\Settings.settings">
       <Generator>SettingsSingleFileGenerator</Generator>
       <LastGenOutput>Settings.Designer.cs</LastGenOutput>
@@ -171,7 +176,7 @@
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="..\..\..\src\SIPSorcery.csproj">
-      <Project>{e14b258d-5aff-4f29-9bbd-48f02a7fb9a7}</Project>
+      <Project>{fe6fd3a4-fb46-4d5d-9e47-3b7442d39f00}</Project>
       <Name>SIPSorcery</Name>
     </ProjectReference>
   </ItemGroup>
