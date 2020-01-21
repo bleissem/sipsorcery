@@ -4,11 +4,10 @@
 // Description: RTCP Header as defined in RFC3550.
 //
 // Author(s):
-// Aaron Clauson
+// Aaron Clauson (aaron@sipsorcery.com
 //
 // History:
-// 22 Feb 2007	Aaron Clauson	Created (aaron@sipsorcery.com), Montreux, Switzerland (www.sipsorcery.com).
-// 11 Aug 2019  Aaron Clauson   Added full license header.
+// 22 Feb 2007	Aaron Clauson	Created, Hobart, Australia.
 //
 // Notes:
 //
@@ -22,7 +21,7 @@
 //       +=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+=+
 //
 // (V)ersion (2 bits) = 2
-// (P)adding (1 bit) = Inidcates whether the packet contains additional padding octets.
+// (P)adding (1 bit) = Indicates whether the packet contains additional padding octets.
 // Reception Report Count (RC) (5 bits) = The number of reception report blocks contained in this packet. A
 //      value of zero is valid.
 // Packet Type (PT) (8 bits) = Contains the constant 200 to identify this as an RTCP SR packet.
@@ -37,25 +36,49 @@ using SIPSorcery.Sys;
 
 namespace SIPSorcery.Net
 {
+    /// <summary>
+    /// The different types of RTCP packets as defined in RFC3550.
+    /// </summary>
+    public enum RTCPReportTypesEnum : byte
+    {
+        SR = 200,     // Send Report.
+        RR = 201,     // Receiver Report.
+        SDES = 202,   // Session Description.
+        BYE = 203,    // Goodbye.
+        APP = 204     // Application-defined.
+    }
+
+    public class RTCPReportTypes
+    {
+        public static RTCPReportTypesEnum GetRTCPReportTypeForId(ushort rtcpReportTypeId)
+        {
+            return (RTCPReportTypesEnum)Enum.Parse(typeof(RTCPReportTypesEnum), rtcpReportTypeId.ToString(), true);
+        }
+    }
+
+    /// <summary>
+    /// RTCP Header as defined in RFC3550.
+    /// </summary>
     public class RTCPHeader
     {
         public const int HEADER_BYTES_LENGTH = 4;
         public const int MAX_RECEPTIONREPORT_COUNT = 32;
-
         public const int RTCP_VERSION = 2;
-        public const UInt16 RTCP_PACKET_TYPE = 200;             // 200 for Sender Report.
 
-        public int Version = RTCP_VERSION;                      // 2 bits.
-        public int PaddingFlag = 0;                             // 1 bit.
-        public int ReceptionReportCount = 0;                    // 5 bits.
-        public UInt16 PacketType = RTCP_PACKET_TYPE;            // 8 bits.
-        public UInt16 Length;                                   // 16 bits.
+        public int Version { get; private set; } = RTCP_VERSION;         // 2 bits.
+        public int PaddingFlag { get; private set; } = 0;                 // 1 bit.
+        public int ReceptionReportCount { get; private set; } = 0;        // 5 bits.
+        public UInt16 PacketType { get; private set; }                    // 8 bits.
+        public UInt16 Length { get; private set; }                        // 16 bits.
 
-        public RTCPHeader()
-        { }
+        public RTCPHeader(RTCPReportTypesEnum packetType, int reportCount)
+        {
+            PacketType = (ushort)packetType;
+            ReceptionReportCount = reportCount;
+        }
 
         /// <summary>
-        /// Extract and load the RTP header from an RTP packet.
+        /// Extract and load the RTCP header from an RTCP packet.
         /// </summary>
         /// <param name="packet"></param>
         public RTCPHeader(byte[] packet)
@@ -94,6 +117,15 @@ namespace SIPSorcery.Net
             Length = length;
 
             return GetBytes();
+        }
+
+        /// <summary>
+        ///  The length of this RTCP packet in 32-bit words minus one,
+        // including the header and any padding.
+        /// </summary>
+        public void SetLength(ushort length)
+        {
+            Length = length; 
         }
 
         public byte[] GetBytes()

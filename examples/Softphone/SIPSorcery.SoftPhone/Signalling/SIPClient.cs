@@ -129,7 +129,7 @@ namespace SIPSorcery.SoftPhone
                 m_rtpMediaSessionManager.RTPMediaSession.RemotePutOnHold += OnRemotePutOnHold;
                 m_rtpMediaSessionManager.RTPMediaSession.RemoteTookOffHold += OnRemoteTookOffHold;
 
-                await m_userAgent.Call(callDescriptor, m_rtpMediaSessionManager.RTPMediaSession);
+                await m_userAgent.InitiateCall(callDescriptor, m_rtpMediaSessionManager.RTPMediaSession);
             }
         }
 
@@ -348,7 +348,7 @@ namespace SIPSorcery.SoftPhone
         {
             if (sipFrag?.Contains("SIP/2.0 200") == true)
             {
-                // The transfer attempt got a succesful answer. Can hangup the call.
+                // The transfer attempt got a successful answer. Can hangup the call.
                 Hangup();
             }
             else
@@ -376,8 +376,7 @@ namespace SIPSorcery.SoftPhone
         /// Event handler that notifies us the remote party has put us on hold.	
         /// </summary>	
         private void OnRemotePutOnHold()
-        {
-            //_mediaManager.StopSending();	
+        {	
             RemotePutOnHold?.Invoke(this);
         }
 
@@ -386,13 +385,19 @@ namespace SIPSorcery.SoftPhone
         /// </summary>	
         private void OnRemoteTookOffHold()
         {
-            //_mediaManager.RestartSending();	
             RemoteTookOffHold?.Invoke(this);
         }
 
         public Task SendDTMF(byte b)
         {
-            return m_rtpMediaSessionManager.RTPMediaSession.SendDtmf(b, _cts.Token);
+            if (m_rtpMediaSessionManager.RTPMediaSession != null)
+            {
+                return m_rtpMediaSessionManager.RTPMediaSession.SendDtmf(b, _cts.Token);
+            }
+            else
+            {
+                return Task.FromResult(0);
+            }
         }
     }
 }

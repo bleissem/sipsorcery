@@ -13,11 +13,11 @@ build:
   publish_nuget: true
   publish_nuget_symbols: true
   verbosity: quiet
-#test:
-#  categories:
-#    except:
-#    - IPv6
-#    - Integration
+test:
+  categories:
+    except:
+    - transport
+    - txintegration
 on_success:
   - ps: |
         if($env:APPVEYOR_REPO_BRANCH -eq "master" -and -Not $env:APPVEYOR_PULL_REQUEST_TITLE)
@@ -47,7 +47,7 @@ deploy:
     symbol_server:           # remove to push symbols to SymbolSource.org
     artifact: /.*\.nupkg/
     on:
-      branch: master                # release from master branch only
+      # branch: master                # release from master branch only
       APPVEYOR_REPO_TAG: true       # deploy on tag push only
 #  - provider: GitHub
 #    artifact: /.*\.nupkg/           # upload all NuGet packages to release assets
