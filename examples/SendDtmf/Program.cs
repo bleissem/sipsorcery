@@ -65,7 +65,7 @@ namespace SIPSorcery
 
         private static Microsoft.Extensions.Logging.ILogger Log = SIPSorcery.Sys.Log.Logger;
 
-        static void Main()
+        static async Task Main()
         {
             Console.WriteLine("SIPSorcery client user agent example.");
             Console.WriteLine("Press ctrl-c to exit.");
@@ -88,11 +88,11 @@ namespace SIPSorcery
             EnableTraceLogs(sipTransport);
 
             // Note this relies on the callURI host being an IP address. If it's a hostname a DNS lookup is required.
-            IPAddress localIPAddress = NetServices.GetLocalAddressForRemote(callUri.ToSIPEndPoint().Address);
+            IPAddress dstAddress = callUri.ToSIPEndPoint().Address;
 
             // Initialise an RTP session to receive the RTP packets from the remote SIP server.
-            var rtpSession = new RTPMediaSession((int)SDPMediaFormatsEnum.PCMU, localIPAddress.AddressFamily);
-            var offerSDP = rtpSession.GetSDP(localIPAddress);
+            var rtpSession = new RTPMediaSession(SDPMediaTypesEnum.audio, new SDPMediaFormat(SDPMediaFormatsEnum.PCMU), dstAddress.AddressFamily);
+            var offerSDP = await rtpSession.CreateOffer(dstAddress);
 
             // Create a client user agent to place a call to a remote SIP server along with event handlers for the different stages of the call.
             var uac = new SIPClientUserAgent(sipTransport);
@@ -112,7 +112,7 @@ namespace SIPSorcery
                 if (resp.Status == SIPResponseStatusCodesEnum.Ok)
                 {
                     Log.LogInformation($"{uac.CallDescriptor.To} Answered: {resp.StatusCode} {resp.ReasonPhrase}.");
-                    rtpSession.DestinationEndPoint = SDP.GetSDPRTPEndPoint(resp.Body);
+                    rtpSession.SetRemoteSDP(SDP.ParseSDPDescription(resp.Body));
                     Log.LogDebug($"Remote RTP socket {rtpSession.DestinationEndPoint}.");
                 }
                 else
@@ -140,8 +140,9 @@ namespace SIPSorcery
 
             // Wire up the RTP receive session to the default speaker.
             var (audioOutEvent, audioOutProvider) = GetAudioOutputDevice();
-            rtpSession.OnReceivedSampleReady += (sample) => 
+            rtpSession.OnRtpPacketReceived += (mediaType, rtpPacket) => 
             {
+                var sample = rtpPacket.Payload;
                 for (int index = 0; index < sample.Length; index++)
                 {
                     short pcm = NAudio.Codecs.MuLawDecoder.MuLawToLinearSample(sample[index]);
@@ -265,7 +266,7 @@ namespace SIPSorcery
                         sample[sampleIndex + 1] = PCMU_SILENCE_BYTE_ONE;
                     }
 
-                    rtpMediaSession.SendAudioFrame(rtpSampleTimestamp, sample);
+                    rtpMediaSession.SendAudioFrame(rtpSampleTimestamp, (int)SDPMediaFormatsEnum.PCMU, sample);
                     rtpSampleTimestamp += rtpTimestampStep;
                 }
 

@@ -33,8 +33,8 @@
 // and can be downloaded directly from: https://www.jamendo.com/track/579315/simplicity?language=en
 // The use of the audio is licensed under the Creative Commons 
 // https://creativecommons.org/licenses/by-nd/2.0/
-// The audio is free for personal use but a license may be required for commerical use.
-// If it sounds familair this particular file is also included as part of Asterisk's 
+// The audio is free for personal use but a license may be required for commercial use.
+// If it sounds familiar this particular file is also included as part of Asterisk's 
 // (asterisk.org) music on hold.
 //
 // ffmpeg can be used to convert the mp3 file into the required format for placing directly 
@@ -118,15 +118,15 @@ namespace SIPSorcery
             sipTransport.AddSIPChannel(new SIPUDPChannel(new IPEndPoint(listenAddress, SIP_LISTEN_PORT)));
             sipTransport.AddSIPChannel(new SIPTCPChannel(new IPEndPoint(listenAddress, SIP_LISTEN_PORT)));
             sipTransport.AddSIPChannel(new SIPTLSChannel(localhostCertificate, new IPEndPoint(listenAddress, SIPS_LISTEN_PORT)));
-            sipTransport.AddSIPChannel(new SIPWebSocketChannel(IPAddress.Any, SIP_WEBSOCKET_LISTEN_PORT));
-            sipTransport.AddSIPChannel(new SIPWebSocketChannel(IPAddress.Any, SIP_SECURE_WEBSOCKET_LISTEN_PORT, localhostCertificate));
+            //sipTransport.AddSIPChannel(new SIPWebSocketChannel(IPAddress.Any, SIP_WEBSOCKET_LISTEN_PORT));
+            //sipTransport.AddSIPChannel(new SIPWebSocketChannel(IPAddress.Any, SIP_SECURE_WEBSOCKET_LISTEN_PORT, localhostCertificate));
 
             // IPv6 channels.
             sipTransport.AddSIPChannel(new SIPUDPChannel(new IPEndPoint(listenIPv6Address, SIP_LISTEN_PORT)));
             sipTransport.AddSIPChannel(new SIPTCPChannel(new IPEndPoint(listenIPv6Address, SIP_LISTEN_PORT)));
             sipTransport.AddSIPChannel(new SIPTLSChannel(localhostCertificate, new IPEndPoint(listenIPv6Address, SIPS_LISTEN_PORT)));
-            sipTransport.AddSIPChannel(new SIPWebSocketChannel(IPAddress.IPv6Any, SIP_WEBSOCKET_LISTEN_PORT));
-            sipTransport.AddSIPChannel(new SIPWebSocketChannel(IPAddress.IPv6Any, SIP_SECURE_WEBSOCKET_LISTEN_PORT, localhostCertificate));
+            //sipTransport.AddSIPChannel(new SIPWebSocketChannel(IPAddress.IPv6Any, SIP_WEBSOCKET_LISTEN_PORT));
+            //sipTransport.AddSIPChannel(new SIPWebSocketChannel(IPAddress.IPv6Any, SIP_SECURE_WEBSOCKET_LISTEN_PORT, localhostCertificate));
 
             EnableTraceLogs(sipTransport);
 
@@ -153,13 +153,13 @@ namespace SIPSorcery
                         if (offerSdp.Media.Any(x => x.Media == SDPMediaTypesEnum.audio && x.HasMediaFormat((int)SDPMediaFormatsEnum.G722)))
                         {
                             Log.LogDebug($"Using G722 RTP media type and audio file {AUDIO_FILE_G722}.");
-                            rtpSession = new RTPMediaSession((int)SDPMediaFormatsEnum.G722, dstRtpEndPoint.AddressFamily);
+                            rtpSession = new RTPMediaSession(SDPMediaTypesEnum.audio, new SDPMediaFormat(SDPMediaFormatsEnum.G722), dstRtpEndPoint.AddressFamily);
                             audioFile = AUDIO_FILE_G722;
                         }
                         else if (offerSdp.Media.Any(x => x.Media == SDPMediaTypesEnum.audio && x.HasMediaFormat((int)SDPMediaFormatsEnum.PCMU)))
                         {
                             Log.LogDebug($"Using PCMU RTP media type and audio file {AUDIO_FILE_PCMU}.");
-                            rtpSession = new RTPMediaSession((int)SDPMediaFormatsEnum.PCMU, dstRtpEndPoint.AddressFamily);
+                            rtpSession = new RTPMediaSession(SDPMediaTypesEnum.audio, new SDPMediaFormat(SDPMediaFormatsEnum.PCMU), dstRtpEndPoint.AddressFamily);
                             audioFile = AUDIO_FILE_PCMU;
                         }
 
@@ -192,12 +192,12 @@ namespace SIPSorcery
                             uas.Progress(SIPResponseStatusCodesEnum.Ringing, null, null, null, null);
 
                             // The RTP socket is listening on IPAddress.Any but the IP address placed into the SDP needs to be one the caller can reach.
-                            IPAddress rtpAddress = NetServices.GetLocalAddressForRemote(dstRtpEndPoint.Address);
+                            //IPAddress rtpAddress = NetServices.GetLocalAddressForRemote(dstRtpEndPoint.Address);
 
                             // Only set the remote RTP end point if there hasn't already been a packet received on it.
                             if (rtpSession.DestinationEndPoint == null)
                             {
-                                rtpSession.DestinationEndPoint = SDP.GetSDPRTPEndPoint(sipRequest.Body);
+                                rtpSession.SetRemoteSDP(SDP.ParseSDPDescription(sipRequest.Body));
                                 Log.LogDebug($"Remote RTP socket {rtpSession.DestinationEndPoint}.");
                             }
 
@@ -213,7 +213,8 @@ namespace SIPSorcery
                                     }
                                 });
 
-                            uas.Answer(SDP.SDP_MIME_CONTENTTYPE, rtpSession.GetSDP(rtpAddress).ToString(), null, SIPDialogueTransferModesEnum.NotAllowed);
+                            var answerSdp = await rtpSession.CreateOffer(dstRtpEndPoint.Address);
+                            uas.Answer(SDP.SDP_MIME_CONTENTTYPE, answerSdp.ToString(), null, SIPDialogueTransferModesEnum.NotAllowed);
                         }
                     }
                     else if (sipRequest.Method == SIPMethodsEnum.BYE)
@@ -327,7 +328,7 @@ namespace SIPSorcery
                                 {
                                     if (!dstRtpEndPoint.Address.Equals(IPAddress.Any))
                                     {
-                                        rtpSession.SendAudioFrame(timestamp, buffer);
+                                        rtpSession.SendAudioFrame(timestamp, (int)SDPMediaFormatsEnum.PCMU, buffer);
                                     }
 
                                     timestamp += (uint)buffer.Length;
@@ -360,7 +361,7 @@ namespace SIPSorcery
 
                                         if (dstRtpEndPoint.Address != IPAddress.Any)
                                         {
-                                            rtpSession.SendAudioFrame(timestamp, buffer);
+                                            rtpSession.SendAudioFrame(timestamp, (int)SDPMediaFormatsEnum.PCMU, buffer);
                                         }
 
                                         timestamp += (uint)buffer.Length;

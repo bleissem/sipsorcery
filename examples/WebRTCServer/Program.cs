@@ -1,30 +1,29 @@
 ﻿//-----------------------------------------------------------------------------
 // Filename: Program.cs
 //
-// Description: An example WebRTC server application that serves media streams
-// to a WebRTC enabled browser.
+// Description: An example WebRTC server application that serves a media stream
+// sourced from an MP4 file to a WebRTC enabled browser.
 //
 // Author(s):
 // Aaron Clauson (aaron@sipsorcery.com)
 // 
 // History:
-// 17 Jan 2020	Aaron Clauson	Created, Dublin, Ireland.
+// 20 Jan 2020	Aaron Clauson	Created, Dublin, Ireland.
 //
 // License: 
 // BSD 3-Clause "New" or "Revised" License, see included LICENSE.md file.
 //-----------------------------------------------------------------------------
 
 using System;
-using System.Drawing;
-using System.Drawing.Drawing2D;
-using System.Drawing.Imaging;
+using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 using System.Net;
 using System.Net.Sockets;
-using System.Runtime.InteropServices;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Extensions.Logging;
+using NAudio.Codecs;
 using Serilog;
 using SIPSorcery.Net;
 using SIPSorceryMedia;
@@ -59,29 +58,27 @@ namespace WebRTCServer
 
     class Program
     {
-        private static string TEST_PATTERN_IMAGE_PATH = "media/testpattern.jpeg";
-        private const float TEXT_SIZE_PERCENTAGE = 0.035f;       // height of text as a percentage of the total image height
-        private const float TEXT_OUTLINE_REL_THICKNESS = 0.02f; // Black text outline thickness is set as a percentage of text height in pixels
-        private const int TEXT_MARGIN_PIXELS = 5;
-        private const int POINTS_PER_INCH = 72;
+        private static string MP4_FILE_PATH = "media/big_buck_bunny.mp4";
         private const int VP8_TIMESTAMP_SPACING = 3000;
         private const int VP8_PAYLOAD_TYPE_ID = 100;
         private const string WEBSOCKET_CERTIFICATE_PATH = "certs/localhost.pfx";
         private const string DTLS_CERTIFICATE_PATH = "certs/localhost.pem";
         private const string DTLS_KEY_PATH = "certs/localhost_key.pem";
-        private const string DTLS_CERTIFICATE_FINGERPRINT = "C6:ED:8C:9D:06:50:77:23:0A:4A:D8:42:68:29:D0:70:2F:BB:C7:72:EC:98:5C:62:07:1B:0C:5D:CB:CE:BE:CD";
-        private const string ICE_USER = "EJYWWCUDJQLTXTNQRXEJ";
-        private const string ICE_PASSWORD = "SKYKPPYLTZOAVCLTGHDUODANRKSPOVQVKXJULOGG";
+        private const string DTLS_CERTIFICATE_FINGERPRINT = "sha-256 C6:ED:8C:9D:06:50:77:23:0A:4A:D8:42:68:29:D0:70:2F:BB:C7:72:EC:98:5C:62:07:1B:0C:5D:CB:CE:BE:CD";
         private const int WEBSOCKET_PORT = 8081;
+        private const int TEST_DTLS_HANDSHAKE_TIMEOUT = 10000;
 
         private static Microsoft.Extensions.Logging.ILogger logger = SIPSorcery.Sys.Log.Logger;
 
         private static WebSocketServer _webSocketServer;
-        private static bool _exit = false;
-        //private static ConcurrentDictionary<string, WebRtcSession> _webRtcSessions = new ConcurrentDictionary<string, WebRtcSession>();
-        //private static WebRtcSession _webRtcSession;
+        private static MediaSource _mediaSource;
+        private static bool _isSampling = false;
+        private static VpxEncoder _vpxEncoder;
+        private static uint _vp8Timestamp;
+        private static uint _mulawTimestamp;
 
-        private static event Action<uint, byte[]> OnTestPatternSampleReady;
+        private delegate void MediaSampleReadyDelegate(SDPMediaTypesEnum mediaType, uint timestamp, byte[] sample);
+        private static event MediaSampleReadyDelegate OnMediaSampleReady;
 
         static void Main()
         {
@@ -94,12 +91,23 @@ namespace WebRTCServer
 
             AddConsoleLogger();
 
+            if (!File.Exists(MP4_FILE_PATH))
+            {
+                throw new ApplicationException($"The media file at does not exist at {MP4_FILE_PATH}.");
+            }
+
             // Initialise OpenSSL & libsrtp, saves a couple of seconds for the first client connection.
             Console.WriteLine("Initialising OpenSSL and libsrtp...");
-            Dtls.InitialiseOpenSSL();
+            DtlsHandshake.InitialiseOpenSSL();
             Srtp.InitialiseLibSrtp();
 
-            Task.Run(SendTestPattern);
+            Task.Run(DoDtlsHandshakeLoopbackTest).Wait();
+
+            Console.WriteLine("Test DTLS handshake complete.");
+
+            _mediaSource = new MediaSource();
+            _mediaSource.Init(MP4_FILE_PATH, true);
+            //_mediaSource.Init(0, 0, VideoSubTypesEnum.I420, 640, 480);
 
             // Start web socket.
             Console.WriteLine("Starting web socket server...");
@@ -125,25 +133,54 @@ namespace WebRTCServer
 
             // Wait for a signal saying the call failed, was cancelled with ctrl-c or completed.
             exitMre.WaitOne();
+
+            _mediaSource.Shutdown();
+            _webSocketServer.Stop();
         }
 
         private static async Task<WebRtcSession> SendSDPOffer(WebSocketContext context)
         {
             logger.LogDebug($"Web socket client connection from {context.UserEndPoint}.");
 
-            var webRtcSession = new WebRtcSession(DTLS_CERTIFICATE_FINGERPRINT, null);
+            var webRtcSession = new WebRtcSession(
+                AddressFamily.InterNetwork,
+                DTLS_CERTIFICATE_FINGERPRINT,
+                null,
+                null);
 
-            logger.LogDebug($"Sending SDP offer to client {context.UserEndPoint}.");
+            webRtcSession.addTrack(SDPMediaTypesEnum.audio, new List<SDPMediaFormat> { new SDPMediaFormat(SDPMediaFormatsEnum.PCMU)});
+            webRtcSession.addTrack(SDPMediaTypesEnum.video, new List<SDPMediaFormat> { new SDPMediaFormat(SDPMediaFormatsEnum.VP8) });
+
+            //webRtcSession.RtpSession.OnReceiveReport += RtpSession_OnReceiveReport;
+            webRtcSession.RtpSession.OnSendReport += RtpSession_OnSendReport;
+            OnMediaSampleReady += webRtcSession.SendMedia;
 
             webRtcSession.OnClose += (reason) =>
             {
-                logger.LogDebug($"WebRTCSession was closed with reason {reason}.");
-                //dtls.Shutdown();
+                logger.LogDebug($"WebRtcSession was closed with reason {reason}");
+                OnMediaSampleReady -= webRtcSession.SendMedia;
+                webRtcSession.RtpSession.OnReceiveReport -= RtpSession_OnReceiveReport;
+                webRtcSession.RtpSession.OnSendReport -= RtpSession_OnSendReport;
             };
 
-            await webRtcSession.Initialise(DoDtlsHandshake, null);
+            var offerSdp = await webRtcSession.createOffer();
+            webRtcSession.setLocalDescription(offerSdp);
 
-            context.WebSocket.Send(webRtcSession.SDP);
+            logger.LogDebug($"Sending SDP offer to client {context.UserEndPoint}.");
+
+            context.WebSocket.Send(webRtcSession.SDP.ToString());
+
+            if (DoDtlsHandshake(webRtcSession))
+            {
+                if (!_isSampling)
+                {
+                    _ = Task.Run(StartMedia);
+                }
+            }
+            else
+            {
+                webRtcSession.Close("dtls handshake failed.");
+            }
 
             return webRtcSession;
         }
@@ -153,35 +190,8 @@ namespace WebRTCServer
             try
             {
                 logger.LogDebug("Answer SDP: " + sdpAnswer);
-
                 var answerSDP = SDP.ParseSDPDescription(sdpAnswer);
-
-                webRtcSession.SdpSessionID = answerSDP.SessionId;
-                webRtcSession.RemoteIceUser = answerSDP.IceUfrag;
-                webRtcSession.RemoteIcePassword = answerSDP.IcePwd;
-
-                // All browsers seem to have gone to trickling ICE candidates now but just
-                // in case one or more are given we can start the STUN dance immediately.
-                if (answerSDP.IceCandidates != null)
-                {
-                    foreach (var iceCandidate in answerSDP.IceCandidates)
-                    {
-                        webRtcSession.AppendRemoteIceCandidate(iceCandidate);
-                    }
-                }
-
-                OnTestPatternSampleReady += (timestamp, sample) =>
-                {
-                    try
-                    {
-                        webRtcSession.SendMedia(SDPMediaTypesEnum.video, timestamp, sample);
-                    }
-                    catch (Exception sendExcp)
-                    {
-                        logger.LogWarning("Exception OnTestPatternSampleReady. " + sendExcp.Message);
-                        webRtcSession.Close();
-                    }
-                };
+                webRtcSession.setRemoteDescription(SdpType.answer, answerSDP);
             }
             catch (Exception excp)
             {
@@ -192,13 +202,11 @@ namespace WebRTCServer
         /// <summary>
         /// Hands the socket handle to the DTLS context and waits for the handshake to complete.
         /// </summary>
-        /// <param name="rtpSocket">The RTP socket being used for the WebRTC session.</param>
-        private static int DoDtlsHandshake(WebRtcSession webRtcSession, Socket rtpSocket, out ProtectRtpPacket protectRtp, out ProtectRtpPacket protectRtcp)
+        /// <param name="webRtcSession">The WebRTC session to perform the DTLS handshake on.</param>
+        /// <returns>True if the handshake completed successfully or false otherwise.</returns>
+        private static bool DoDtlsHandshake(WebRtcSession webRtcSession)
         {
             logger.LogDebug("DoDtlsHandshake started.");
-
-            protectRtp = null;
-            protectRtcp = null;
 
             if (!File.Exists(DTLS_CERTIFICATE_PATH))
             {
@@ -209,161 +217,216 @@ namespace WebRTCServer
                 throw new ApplicationException($"The DTLS key file could not be found at {DTLS_KEY_PATH}.");
             }
 
-            var dtls = new Dtls(DTLS_CERTIFICATE_PATH, DTLS_KEY_PATH);
+            var dtls = new DtlsHandshake(DTLS_CERTIFICATE_PATH, DTLS_KEY_PATH);
             webRtcSession.OnClose += (reason) => dtls.Shutdown();
 
-            int res = dtls.DoHandshake((ulong)rtpSocket.Handle);
+            int res = dtls.DoHandshakeAsServer((ulong)webRtcSession.RtpSession.RtpChannel.RtpSocket.Handle);
 
             logger.LogDebug("DtlsContext initialisation result=" + res);
 
-            if (dtls.GetState() == (int)DtlsState.OK)
+            if (dtls.IsHandshakeComplete())
             {
-                //logger.LogDebug("DTLS negotiation complete for " + remoteEndPoint.ToString() + ".");
                 logger.LogDebug("DTLS negotiation complete.");
 
-                var srtpContext = new Srtp(dtls, false);
-                //var srtpReceiveContext = new Srtp(dtls, true);
+                var srtpSendContext = new Srtp(dtls, false);
+                var srtpReceiveContext = new Srtp(dtls, true);
 
-                //IsDtlsNegotiationComplete = true;
+                webRtcSession.RtpSession.SetSecurityContext(
+                    srtpSendContext.ProtectRTP,
+                    srtpReceiveContext.UnprotectRTP,
+                    srtpSendContext.ProtectRTCP,
+                    srtpReceiveContext.UnprotectRTCP);
 
-                //_rtpSession.SrtpProtect = srtpContext.ProtectRTP;
-                //_rtpSession.SrtcpProtect = srtpContext.ProtectRTCP;
-                protectRtp = srtpContext.ProtectRTP;
-                protectRtcp = srtpContext.ProtectRTCP;
+                webRtcSession.IsDtlsNegotiationComplete = true;
+
+                return true;
             }
-
-            
-
-            return res;
+            else
+            {
+                return false;
+            }
         }
 
-        private static void SendTestPattern()
+        /// <summary>
+        /// Video resolution changed event handler.
+        /// </summary>
+        /// <param name="width">The new video frame width.</param>
+        /// <param name="height">The new video frame height.</param>
+        /// <param name="stride">The new video frame stride.</param>
+        private static void OnVideoResolutionChanged(uint width, uint height, uint stride)
         {
             try
             {
-                unsafe
+                if (_vpxEncoder == null ||
+                    (_vpxEncoder.GetWidth() != width || _vpxEncoder.GetHeight() != height || _vpxEncoder.GetStride() != stride))
                 {
-                    Bitmap testPattern = new Bitmap(TEST_PATTERN_IMAGE_PATH);
-
-                    // Get the stride.
-                    Rectangle rect = new Rectangle(0, 0, testPattern.Width, testPattern.Height);
-                    System.Drawing.Imaging.BitmapData bmpData =
-                        testPattern.LockBits(rect, System.Drawing.Imaging.ImageLockMode.ReadWrite,
-                        testPattern.PixelFormat);
-
-                    // Get the address of the first line.
-                    int stride = bmpData.Stride;
-
-                    testPattern.UnlockBits(bmpData);
-
-                    // Initialise the video codec and color converter.
-                    SIPSorceryMedia.VpxEncoder vpxEncoder = new VpxEncoder();
-                    vpxEncoder.InitEncoder((uint)testPattern.Width, (uint)testPattern.Height, (uint)stride);
-
-                    SIPSorceryMedia.ImageConvert colorConverter = new ImageConvert();
-
-                    byte[] sampleBuffer = null;
-                    byte[] encodedBuffer = null;
-                    int sampleCount = 0;
-                    uint rtpTimestamp = 0;
-
-                    while (!_exit)
+                    if (_vpxEncoder != null)
                     {
-                        if (OnTestPatternSampleReady != null)
+                        _vpxEncoder.Dispose();
+                    }
+
+                    _vpxEncoder = new VpxEncoder();
+                    _vpxEncoder.InitEncoder(width, height, stride);
+
+                    logger.LogInformation($"VPX encoder initialised with width {width}, height {height} and stride {stride}.");
+                }
+            }
+            catch (Exception excp)
+            {
+                logger.LogWarning("Exception OnVideoResolutionChangedEvent. " + excp.Message);
+            }
+        }
+
+        /// <summary>
+        /// Starts the Media Foundation sampling.
+        /// </summary>
+        unsafe private static void StartMedia()
+        {
+            try
+            {
+                logger.LogDebug("Starting media sampling thread.");
+
+                _isSampling = true;
+
+                while (true)
+                {
+                    if (OnMediaSampleReady == null)
+                    {
+                        logger.LogDebug("No active clients, media sampling paused.");
+                        break;
+                    }
+                    else
+                    {
+                        byte[] sampleBuffer = null;
+                        var sample = _mediaSource.GetSample(ref sampleBuffer);
+
+                        if (sample != null && sample.HasVideoSample)
                         {
-                            var stampedTestPattern = testPattern.Clone() as System.Drawing.Image;
-                            AddTimeStampAndLocation(stampedTestPattern, DateTime.UtcNow.ToString("dd MMM yyyy HH:mm:ss:fff"), "Test Pattern");
-                            sampleBuffer = BitmapToRGB24(stampedTestPattern as System.Drawing.Bitmap);
-
-                            fixed (byte* p = sampleBuffer)
+                            if (_vpxEncoder == null ||
+                                (_vpxEncoder.GetWidth() != sample.Width || _vpxEncoder.GetHeight() != sample.Height || _vpxEncoder.GetStride() != sample.Stride))
                             {
-                                byte[] convertedFrame = null;
-                                colorConverter.ConvertRGBtoYUV(p, VideoSubTypesEnum.BGR24, testPattern.Width, testPattern.Height, stride, VideoSubTypesEnum.I420, ref convertedFrame);
+                                OnVideoResolutionChanged((uint)sample.Width, (uint)sample.Height, (uint)sample.Stride);
+                            }
 
-                                fixed (byte* q = convertedFrame)
+                            byte[] vpxEncodedBuffer = null;
+
+                            unsafe
+                            {
+                                fixed (byte* p = sampleBuffer)
                                 {
-                                    int encodeResult = vpxEncoder.Encode(q, convertedFrame.Length, 1, ref encodedBuffer);
+                                    int encodeResult = _vpxEncoder.Encode(p, sampleBuffer.Length, 1, ref vpxEncodedBuffer);
 
                                     if (encodeResult != 0)
                                     {
                                         logger.LogWarning("VPX encode of video sample failed.");
-                                        continue;
                                     }
                                 }
                             }
 
-                            stampedTestPattern.Dispose();
-                            stampedTestPattern = null;
+                            OnMediaSampleReady?.Invoke(SDPMediaTypesEnum.video, _vp8Timestamp, vpxEncodedBuffer);
 
-                            OnTestPatternSampleReady(rtpTimestamp, encodedBuffer);
+                            //Console.WriteLine($"Video SeqNum {videoSeqNum}, timestamp {videoTimestamp}, buffer length {vpxEncodedBuffer.Length}, frame count {sampleProps.FrameCount}.");
 
-                            encodedBuffer = null;
+                            _vp8Timestamp += VP8_TIMESTAMP_SPACING;
 
-                            sampleCount++;
-                            rtpTimestamp += VP8_TIMESTAMP_SPACING;
                         }
+                        else if (sample != null && sample.HasAudioSample)
+                        {
+                            uint sampleDuration = (uint)(sampleBuffer.Length / 2);
 
-                        Thread.Sleep(30);
+                            byte[] mulawSample = new byte[sampleDuration];
+                            int sampleIndex = 0;
+
+                            for (int index = 0; index < sampleBuffer.Length; index += 2)
+                            {
+                                var ulawByte = MuLawEncoder.LinearToMuLawSample(BitConverter.ToInt16(sampleBuffer, index));
+                                mulawSample[sampleIndex++] = ulawByte;
+                            }
+
+                            OnMediaSampleReady?.Invoke(SDPMediaTypesEnum.audio, _mulawTimestamp, mulawSample);
+
+                            //Console.WriteLine($"Audio SeqNum {audioSeqNum}, timestamp {audioTimestamp}, buffer length {mulawSample.Length}.");
+
+                            _mulawTimestamp += sampleDuration;
+                        }
                     }
                 }
             }
             catch (Exception excp)
             {
-                logger.LogError("Exception SendTestPattern. " + excp);
+                logger.LogWarning("Exception OnProcessSampleEvent. " + excp.Message);
+            }
+            finally
+            {
+                logger.LogDebug("Media sampling thread stopped.");
+
+                _isSampling = false;
             }
         }
 
-        private static byte[] BitmapToRGB24(Bitmap bitmap)
+        /// <summary>
+        /// Diagnostic handler to print out our RTCP sender/receiver reports.
+        /// </summary>
+        private static void RtpSession_OnSendReport(SDPMediaTypesEnum mediaType, RTCPCompoundPacket sentRtcpReport)
         {
-            try
+            if (sentRtcpReport.SenderReport != null)
             {
-                BitmapData bitmapData = bitmap.LockBits(new Rectangle(0, 0, bitmap.Width, bitmap.Height), ImageLockMode.ReadWrite, System.Drawing.Imaging.PixelFormat.Format24bppRgb);
-                var length = bitmapData.Stride * bitmapData.Height;
-
-                byte[] bytes = new byte[length];
-
-                // Copy bitmap to byte[]
-                Marshal.Copy(bitmapData.Scan0, bytes, 0, length);
-                bitmap.UnlockBits(bitmapData);
-
-                return bytes;
+                var sr = sentRtcpReport.SenderReport;
+                Console.WriteLine($"RTCP sent SR {mediaType}, ssrc {sr.SSRC}, pkts {sr.PacketCount}, bytes {sr.OctetCount}.");
             }
-            catch (Exception)
+            else
             {
-                return new byte[] { };
+                var rrSample = sentRtcpReport.ReceiverReport.ReceptionReports.First();
+                Console.WriteLine($"RTCP sent RR {mediaType}, ssrc {rrSample.SSRC}, seqnum {rrSample.ExtendedHighestSequenceNumber}.");
             }
         }
 
-        private static void AddTimeStampAndLocation(System.Drawing.Image image, string timeStamp, string locationText)
+        /// <summary>
+        /// Diagnostic handler to print out our RTCP reports from the remote WebRTC peer.
+        /// </summary>
+        private static void RtpSession_OnReceiveReport(SDPMediaTypesEnum mediaType, RTCPCompoundPacket recvRtcpReport)
         {
-            int pixelHeight = (int)(image.Height * TEXT_SIZE_PERCENTAGE);
-
-            Graphics g = Graphics.FromImage(image);
-            g.SmoothingMode = SmoothingMode.AntiAlias;
-            g.InterpolationMode = InterpolationMode.HighQualityBicubic;
-            g.PixelOffsetMode = PixelOffsetMode.HighQuality;
-
-            using (StringFormat format = new StringFormat())
+            var rr = recvRtcpReport.ReceiverReport.ReceptionReports.FirstOrDefault();
+            if (rr != null)
             {
-                format.LineAlignment = StringAlignment.Center;
-                format.Alignment = StringAlignment.Center;
-
-                using (Font f = new Font("Tahoma", pixelHeight, GraphicsUnit.Pixel))
-                {
-                    using (var gPath = new GraphicsPath())
-                    {
-                        float emSize = g.DpiY * f.Size / POINTS_PER_INCH;
-                        if (locationText != null)
-                        {
-                            gPath.AddString(locationText, f.FontFamily, (int)FontStyle.Bold, emSize, new Rectangle(0, TEXT_MARGIN_PIXELS, image.Width, pixelHeight), format);
-                        }
-
-                        gPath.AddString(timeStamp /* + " -- " + fps.ToString("0.00") + " fps" */, f.FontFamily, (int)FontStyle.Bold, emSize, new Rectangle(0, image.Height - (pixelHeight + TEXT_MARGIN_PIXELS), image.Width, pixelHeight), format);
-                        g.FillPath(Brushes.White, gPath);
-                        g.DrawPath(new Pen(Brushes.Black, pixelHeight * TEXT_OUTLINE_REL_THICKNESS), gPath);
-                    }
-                }
+                logger.LogDebug($"RTCP {mediaType} Receiver Report: SSRC {rr.SSRC}, pkts lost {rr.PacketsLost}, delay since SR {rr.DelaySinceLastSenderReport}.");
             }
+            else
+            {
+                logger.LogDebug($"RTCP {mediaType} Receiver Report: empty.");
+            }
+        }
+
+        /// <summary>
+        /// Runs a DTLS handshake test between two threads on a loopback address. The main motivation for
+        /// this test was that the first DTLS handshake between this application and a client browser
+        /// was often substantially slower and occasionally failed. By doing a loopback test the idea 
+        /// is that the internal OpenSSL state is initialised.
+        /// </summary>
+        private static void DoDtlsHandshakeLoopbackTest()
+        {
+            IPAddress testAddr = IPAddress.Loopback;
+
+            Socket svrSock = new Socket(testAddr.AddressFamily, SocketType.Dgram, ProtocolType.Udp);
+            svrSock.Bind(new IPEndPoint(testAddr, 9000));
+            int svrPort = ((IPEndPoint)svrSock.LocalEndPoint).Port;
+            DtlsHandshake svrHandshake = new DtlsHandshake(DTLS_CERTIFICATE_PATH, DTLS_KEY_PATH);
+            //svrHandshake.Debug = true;
+            var svrTask = Task.Run(() => svrHandshake.DoHandshakeAsServer((ulong)svrSock.Handle));
+
+            Socket cliSock = new Socket(testAddr.AddressFamily, SocketType.Dgram, ProtocolType.Udp);
+            cliSock.Bind(new IPEndPoint(testAddr, 0));
+            cliSock.Connect(testAddr, svrPort);
+            DtlsHandshake cliHandshake = new DtlsHandshake();
+            //cliHandshake.Debug = true;
+            var cliTask = Task.Run(() => cliHandshake.DoHandshakeAsClient((ulong)cliSock.Handle, (short)testAddr.AddressFamily, testAddr.GetAddressBytes(), (ushort)svrPort));
+
+            bool result = Task.WaitAll(new Task[] { svrTask, cliTask}, TEST_DTLS_HANDSHAKE_TIMEOUT);
+
+            cliHandshake.Shutdown();
+            svrHandshake.Shutdown();
+            cliSock.Close();
+            svrSock.Close();
         }
 
         /// <summary>

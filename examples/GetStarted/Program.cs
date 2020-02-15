@@ -40,7 +40,7 @@ namespace demo
 
             var sipTransport = new SIPTransport();
             var userAgent = new SIPUserAgent(sipTransport, null);
-            var rtpSession = new RTPMediaSession((int)SDPMediaFormatsEnum.PCMU, AddressFamily.InterNetwork);
+            var rtpSession = new RTPMediaSession(SDPMediaTypesEnum.audio, new SDPMediaFormat(SDPMediaFormatsEnum.PCMU), AddressFamily.InterNetwork);
 
             // Connect audio devices to RTP session.
             WaveInEvent microphone = GetAudioInputDevice();
@@ -98,14 +98,15 @@ namespace demo
 
                 if (rtpSession.DestinationEndPoint != null)
                 {
-                    rtpSession.SendAudioFrame(rtpSendTimestamp, sample);
+                    rtpSession.SendAudioFrame(rtpSendTimestamp, (int)SDPMediaFormatsEnum.PCMU, sample);
                     rtpSendTimestamp += (uint)(8000 / microphone.BufferMilliseconds);
                 }
             };
 
             // Wire up the RTP receive session to the audio output device.
-            rtpSession.OnReceivedSampleReady += (sample) =>
+            rtpSession.OnRtpPacketReceived += (mediaType, rtpPacket) =>
             {
+                var sample = rtpPacket.Payload;
                 for (int index = 0; index < sample.Length; index++)
                 {
                     short pcm = NAudio.Codecs.MuLawDecoder.MuLawToLinearSample(sample[index]);
@@ -155,7 +156,7 @@ namespace demo
         }
 
         /// <summary>
-        ///  Adds a console logger. Can be ommitted if internal SIPSorcery debug and warning messages are not required.
+        ///  Adds a console logger. Can be omitted if internal SIPSorcery debug and warning messages are not required.
         /// </summary>
         private static void AddConsoleLogger()
         {

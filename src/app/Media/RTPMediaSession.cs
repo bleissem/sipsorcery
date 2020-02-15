@@ -63,30 +63,37 @@ namespace SIPSorcery.SIP.App
         public List<SDPMediaAnnouncement> MediaAnnouncements { get; private set; } = new List<SDPMediaAnnouncement>();
 
         /// <summary>
+        /// The SDP for our end of the call.
+        /// </summary>
+        public SDP LocalSDP { get; private set; }
+
+        /// <summary>
         /// The SDP offered by the remote call party for this session.
         /// </summary>
         public SDP RemoteSDP { get; private set; }
 
-        public RTPMediaSession(int formatTypeID, AddressFamily addrFamily)
-             : base(formatTypeID, addrFamily, false)
+        public RTPMediaSession(SDPMediaTypesEnum mediaType, SDPMediaFormat codec, AddressFamily addrFamily)
+             : base(mediaType, codec, addrFamily, false, false)
         {
             // Construct the local SDP. There are a number of assumptions being made here:
             // PCMU audio, RTP event support etc.
-            var mediaFormat = new SDPMediaFormat(formatTypeID);
             var mediaAnnouncement = new SDPMediaAnnouncement
             {
-                Media = SDPMediaTypesEnum.audio,
-                MediaFormats = new List<SDPMediaFormat> { mediaFormat },
+                Media = mediaType,
+                MediaFormats = new List<SDPMediaFormat> { codec },
                 MediaStreamStatus = MediaStreamStatusEnum.SendRecv,
                 Port = base.RtpChannel.RTPPort
             };
 
-            // RTP event support.
-            int clockRate = mediaFormat.GetClockRate();
-            SDPMediaFormat rtpEventFormat = new SDPMediaFormat(DTMF_EVENT_PAYLOAD_ID);
-            rtpEventFormat.SetFormatAttribute($"{TELEPHONE_EVENT_ATTRIBUTE}/{clockRate}");
-            rtpEventFormat.SetFormatParameterAttribute("0-16");
-            mediaAnnouncement.MediaFormats.Add(rtpEventFormat);
+            if (mediaType == SDPMediaTypesEnum.audio)
+            {
+                // RTP event support.
+                int clockRate = codec.GetClockRate();
+                SDPMediaFormat rtpEventFormat = new SDPMediaFormat(DTMF_EVENT_PAYLOAD_ID);
+                rtpEventFormat.SetFormatAttribute($"{TELEPHONE_EVENT_ATTRIBUTE}/{clockRate}");
+                rtpEventFormat.SetFormatParameterAttribute("0-16");
+                mediaAnnouncement.MediaFormats.Add(rtpEventFormat);
+            }
 
             MediaAnnouncements.Add(mediaAnnouncement);
         }
@@ -124,7 +131,13 @@ namespace SIPSorcery.SIP.App
         public void PutOnHold()
         {
             LocalOnHold = true;
-            SessionMediaChanged?.Invoke(CreateOfferInternal());
+
+            // The action we take to put a call on hold is to switch the media status
+            // to sendonly and change the audio input from a capture device to on hold
+            // music.
+            AdjustSdpForMediaState(LocalSDP);
+
+            SessionMediaChanged?.Invoke(LocalSDP.ToString());
         }
 
         /// <summary>
@@ -133,34 +146,13 @@ namespace SIPSorcery.SIP.App
         public void TakeOffHold()
         {
             LocalOnHold = false;
-            SessionMediaChanged?.Invoke(CreateOfferInternal());
+            AdjustSdpForMediaState(LocalSDP);
+            SessionMediaChanged?.Invoke(LocalSDP.ToString());
         }
 
         public virtual void Close()
         {
             CloseSession(null);
-        }
-
-        /// <summary>
-        /// Gets the a basic Session Description Protocol object that describes this RTP session.
-        /// </summary>
-        /// <param name="localAddress">The RTP socket we will be sending from. Note this can't be IPAddress.Any as
-        /// it's getting sent to the callee. An IP address of 0.0.0.0 or [::0] will typically be interpreted as
-        /// "don't send me any RTP".</param>
-        /// <returns>An Session Description Protocol object that can be sent to a remote callee.</returns>
-        public SDP GetSDP(IPAddress localAddress)
-        {
-            var sdp = new SDP(localAddress)
-            {
-                SessionId = Crypto.GetRandomInt(5).ToString(),
-                SessionName = SDP_SESSION_NAME,
-                Timing = "0 0",
-                Connection = new SDPConnectionInformation(localAddress),
-            };
-
-            sdp.Media = MediaAnnouncements;
-
-            return sdp;
         }
 
         /// <summary>
@@ -189,25 +181,41 @@ namespace SIPSorcery.SIP.App
                     }
                 }
             }
-
-            DestinationEndPoint = sdp.GetSDPRTPEndPoint();
-            RtcpSession.ControlDestinationEndPoint = new IPEndPoint(DestinationEndPoint.Address, DestinationEndPoint.Port + 1);
+            var dstEndPoint = sdp.GetSDPRTPEndPoint();
+            SetDestination(dstEndPoint, new IPEndPoint(dstEndPoint.Address, dstEndPoint.Port + 1));
         }
 
-        public Task<string> CreateOffer(IPAddress destinationAddress = null) =>
-            Task.FromResult(CreateOfferInternal(destinationAddress));
+        /// <summary>
+        /// Gets the a basic Session Description Protocol object that describes this RTP session.
+        /// </summary>
+        /// <param name="destinationAddress">The RTP socket we will be to. This determines
+        /// which local IP address will be put in the offer.</param>
+        /// <returns>An Session Description Protocol object that can be sent to a remote callee.</returns>
+        public Task<string> CreateOffer(IPAddress destinationAddress = null)
+        {
+            LocalSDP = CreateOfferInternal(destinationAddress);
+            return Task.FromResult(LocalSDP.ToString());
+        }
 
-        private string CreateOfferInternal(IPAddress destinationAddress = null)
+        private SDP CreateOfferInternal(IPAddress destinationAddress = null)
         {
             var destinationAddressToUse = FindDestinationAddressToUse(destinationAddress);
 
             IPAddress localIPAddress = NetServices.GetLocalAddressForRemote(destinationAddressToUse);
 
-            var localSDP = GetSDP(localIPAddress);
+            var sdp = new SDP(localIPAddress)
+            {
+                SessionId = Crypto.GetRandomInt(5).ToString(),
+                SessionName = SDP_SESSION_NAME,
+                Timing = "0 0",
+                Connection = new SDPConnectionInformation(localIPAddress),
+            };
 
-            AdjustSdpForMediaState(localSDP);
+            sdp.Media = MediaAnnouncements;
 
-            return localSDP.ToString();
+            AdjustSdpForMediaState(sdp);
+
+            return sdp;
         }
 
         private IPAddress FindDestinationAddressToUse(IPAddress destinationAddress)

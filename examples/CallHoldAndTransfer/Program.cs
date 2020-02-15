@@ -33,7 +33,7 @@ namespace SIPSorcery
         private static int SIP_LISTEN_PORT = 5060;
         //private static readonly string DEFAULT_DESTINATION_SIP_URI = "sip:*61@192.168.11.48";
         private static readonly string DEFAULT_DESTINATION_SIP_URI = "sip:7000@192.168.11.48";
-        private static readonly string TRANSFER_DESTINATION_SIP_URI = "sip:*60@192.168.11.48";  // The destination to transfer the intial call to.
+        private static readonly string TRANSFER_DESTINATION_SIP_URI = "sip:*60@192.168.11.48";  // The destination to transfer the initial call to.
         private static readonly string SIP_USERNAME = "7001";
         private static readonly string SIP_PASSWORD = "password";
         private static WaveFormat _waveFormat = new WaveFormat(8000, 16, 1);  // PCMU format used by both input and output streams.
@@ -122,7 +122,7 @@ namespace SIPSorcery
                         Log.LogInformation($"Incoming call request from {remoteEndPoint}: {sipRequest.StatusLine}.");
                         var incomingCall = userAgent.AcceptCall(sipRequest);
 
-                        RtpMediaSession = new RTPMediaSession((int)SDPMediaFormatsEnum.PCMU, AddressFamily.InterNetwork);
+                        RtpMediaSession = new RTPMediaSession(SDPMediaTypesEnum.audio, new SDPMediaFormat(SDPMediaFormatsEnum.PCMU), AddressFamily.InterNetwork);
                         RtpMediaSession.RemotePutOnHold += () => Log.LogInformation("Remote call party has placed us on hold.");
                         RtpMediaSession.RemoteTookOffHold += () => Log.LogInformation("Remote call party took us off hold.");
                         await userAgent.Answer(incomingCall, RtpMediaSession);
@@ -156,7 +156,7 @@ namespace SIPSorcery
 
                 if (RtpMediaSession != null)
                 {
-                    RtpMediaSession.SendAudioFrame(rtpSendTimestamp, sample);
+                    RtpMediaSession.SendAudioFrame(rtpSendTimestamp, (int)SDPMediaFormatsEnum.PCMU, sample);
                     rtpSendTimestamp += (uint)(8000 / waveInEvent.BufferMilliseconds);
                 }
             };
@@ -174,7 +174,7 @@ namespace SIPSorcery
                         {
                             if (!userAgent.IsCallActive)
                             {
-                                RtpMediaSession = new RTPMediaSession((int)SDPMediaFormatsEnum.PCMU, AddressFamily.InterNetwork);
+                                RtpMediaSession = new RTPMediaSession(SDPMediaTypesEnum.audio, new SDPMediaFormat(SDPMediaFormatsEnum.PCMU), AddressFamily.InterNetwork);
                                 RtpMediaSession.RemotePutOnHold += () => Log.LogInformation("Remote call party has placed us on hold.");
                                 RtpMediaSession.RemoteTookOffHold += () => Log.LogInformation("Remote call party took us off hold.");
 
@@ -326,8 +326,9 @@ namespace SIPSorcery
                 return;
             }
 
-            rtpSession.OnReceivedSampleReady += (sample) =>
+            rtpSession.OnRtpPacketReceived += (mediaType, rtpPacket) =>
             {
+                var sample = rtpPacket.Payload;
                 for (int index = 0; index < sample.Length; index++)
                 {
                     short pcm = NAudio.Codecs.MuLawDecoder.MuLawToLinearSample(sample[index]);
@@ -377,7 +378,7 @@ namespace SIPSorcery
         }
 
         /// <summary>
-        ///  Adds a console logger. Can be ommitted if internal SIPSorcery debug and warning messages are not required.
+        ///  Adds a console logger. Can be omitted if internal SIPSorcery debug and warning messages are not required.
         /// </summary>
         private static void AddConsoleLogger()
         {
